@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import qrcode from 'qrcode-generator'
 import {
   deactivateWebFillLink,
   listActiveWebFillLinks,
@@ -24,6 +25,149 @@ function fmt(v) {
 function shareViaWhatsApp(url, title) {
   const text = encodeURIComponent(`Please fill this survey: ${title}\n${url}`)
   window.open(`https://wa.me/?text=${text}`, '_blank')
+}
+
+/* ─── QR code (bundled encoder — no CDN, CSP-safe) ────────────── */
+function buildQr(url) {
+  const qr = qrcode(0, 'M')
+  qr.addData(url)
+  qr.make()
+  return qr
+}
+
+function qrCanvas(url, px = 320, quiet = 4) {
+  const qr = buildQr(url)
+  const count = qr.getModuleCount()
+  const scale = Math.max(2, Math.floor((px - quiet * 2) / count))
+  const size = (count + quiet * 2) * scale
+  const c = document.createElement('canvas')
+  c.width = size
+  c.height = size
+  const ctx = c.getContext('2d')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, size, size)
+  ctx.fillStyle = '#0f172a'
+  for (let r = 0; r < count; r++) {
+    for (let col = 0; col < count; col++) {
+      if (qr.isDark(r, col)) ctx.fillRect((col + quiet) * scale, (r + quiet) * scale, scale, scale)
+    }
+  }
+  return c
+}
+
+function downloadQrPng(url, title) {
+  try {
+    const scale = 12
+    const quiet = 4
+    const qr = buildQr(url)
+    const count = qr.getModuleCount()
+    const size = (count + quiet * 2) * scale
+    const c = document.createElement('canvas')
+    c.width = size
+    c.height = size + 120
+    const ctx = c.getContext('2d')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, c.width, c.height)
+    ctx.fillStyle = '#0f172a'
+    for (let r = 0; r < count; r++) {
+      for (let col = 0; col < count; col++) {
+        if (qr.isDark(r, col)) ctx.fillRect((col + quiet) * scale, (r + quiet) * scale, scale, scale)
+      }
+    }
+    ctx.textAlign = 'center'
+    ctx.fillStyle = '#0f172a'
+    ctx.font = `bold ${Math.round(scale * 2.6)}px sans-serif`
+    ctx.fillText(String(title || 'Survey').slice(0, 44), size / 2, size + 46)
+    ctx.fillStyle = '#475569'
+    ctx.font = `${Math.round(scale * 1.7)}px monospace`
+    const u = url.length > 56 ? `${url.slice(0, 53)}…` : url
+    ctx.fillText(u, size / 2, size + 88)
+    const a = document.createElement('a')
+    a.href = c.toDataURL('image/png')
+    a.download = `survey-qr-${String(title || 'link').replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 40)}.png`
+    a.click()
+  } catch { /* download is best-effort */ }
+}
+
+function QrModal({ url, title, onClose }) {
+  const boxRef = useRef(null)
+  useEffect(() => {
+    if (boxRef.current) {
+      boxRef.current.innerHTML = ''
+      boxRef.current.appendChild(qrCanvas(url, 300, 4))
+    }
+  }, [url])
+  return (
+    <div
+      role="dialog"
+      aria-label="Survey QR code"
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 100000,
+        background: 'rgba(15, 23, 42, 0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: 16, padding: '20px 22px',
+          maxWidth: 420, width: '100%', textAlign: 'center',
+          boxShadow: '0 24px 60px rgba(15, 23, 42, 0.35)',
+        }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', marginBottom: 4 }}>
+          Scan to fill the survey
+        </div>
+        <div style={{ fontSize: 12, color: '#475569', marginBottom: 14, wordBreak: 'break-word' }}>{title}</div>
+        <div ref={boxRef} style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }} />
+        <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#475569', marginBottom: 14, wordBreak: 'break-all' }}>{url}</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            className="btn primary"
+            style={{ flex: 1, minHeight: 44, fontWeight: 700 }}
+            onClick={() => downloadQrPng(url, title)}
+          >
+            ⬇ Download PNG
+          </button>
+          <button type="button" className="btn" style={{ flex: 1, minHeight: 44 }} onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function QrThumb({ url, title }) {
+  const boxRef = useRef(null)
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (boxRef.current && url) {
+      boxRef.current.innerHTML = ''
+      boxRef.current.appendChild(qrCanvas(url, 84, 3))
+    }
+  }, [url])
+  if (!url) return null
+  return (
+    <>
+      <button
+        type="button"
+        title="Show QR code"
+        aria-label="Show QR code"
+        onClick={() => setOpen(true)}
+        style={{
+          width: 84, height: 84, padding: 6, background: '#fff',
+          border: '1px solid #e2e8f0', borderRadius: 10, cursor: 'zoom-in',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }}
+      >
+        <span ref={boxRef} style={{ display: 'block', width: '100%' }} />
+      </button>
+      {open && <QrModal url={url} title={title} onClose={() => setOpen(false)} />}
+    </>
+  )
 }
 
 function Pill({ label, color = '#64748b', bg = '#f1f5f9', dot }) {
@@ -349,6 +493,7 @@ function SurveyWebCard({ survey, onToast, expanded, onToggle, canDeactivate, rel
                   flex: 1, fontSize: 12, color: '#334155', wordBreak: 'break-all',
                   fontFamily: 'monospace',
                 }}>{url}</span>
+                <QrThumb url={url} title={survey.title} />
               </div>
 
               {/* share buttons */}
@@ -814,6 +959,7 @@ export default function AdminWebSurveyScreen({ onToast, user }) {
                 onFocus={(e) => e.target.select()}
                 style={{ flex: 1, minWidth: 240, fontSize: 12, fontFamily: 'monospace', color: '#0f172a', background: '#f8fafc' }}
               />
+              <QrThumb url={genUrl} title={selectedSurveyObj?.title || 'Survey'} />
               <button
                 type="button"
                 className="btn small"
