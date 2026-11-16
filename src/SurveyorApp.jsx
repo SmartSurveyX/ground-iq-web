@@ -53,6 +53,7 @@ import VerifiedBadge from './VerifiedBadge'
 import { PortalSkeleton } from './PortalUI'
 import BiometricCard from './components/BiometricCard'
 import PasskeyCard from './components/PasskeyCard'
+import ProfilePhoto from './components/ProfilePhoto'
 import { claimReload, isChunkLoadError, reloadSoon } from './reloadGuard'
 import {
   getNavMode,
@@ -810,23 +811,18 @@ function SurveyorProfileScreen({
       {/* Centered Profile Hero */}
       <div className="prof">
         <div style={{ position: 'relative', display: 'inline-block', marginBottom: 8 }}>
-          {user?.photo ? (
-            <img
-              src={user.photo}
-              alt="Profile"
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: '50%',
-                objectFit: 'cover',
-                border: '2px solid #bfdbfe',
-              }}
-            />
-          ) : (
-            <div className="avatar">
-              {initials}
-            </div>
-          )}
+          <ProfilePhoto
+            src={user?.photo}
+            alt="Profile"
+            style={{
+              width: 72,
+              height: 72,
+              borderRadius: '50%',
+              objectFit: 'cover',
+              border: '2px solid #bfdbfe',
+            }}
+            fallback={<div className="avatar">{initials}</div>}
+          />
           <label
             style={{
               position: 'absolute',
@@ -952,6 +948,7 @@ function SurveyorProfileScreen({
                 <img
                   src={user.aadhaar_front}
                   alt="Front"
+                  onError={(e) => { e.currentTarget.style.display = 'none' }}
                   style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.25 }}
                 />
                 <span style={{ position: 'relative', zIndex: 1 }}>Front ✓</span>
@@ -979,6 +976,7 @@ function SurveyorProfileScreen({
                 <img
                   src={user.aadhaar_back}
                   alt="Back"
+                  onError={(e) => { e.currentTarget.style.display = 'none' }}
                   style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.25 }}
                 />
                 <span style={{ position: 'relative', zIndex: 1 }}>Back ✓</span>

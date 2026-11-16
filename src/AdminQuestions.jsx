@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from './Icons'
 import { getQuestions, getSurvey, listSurveys, saveQuestions, updateSurvey } from './api'
 import OptionPills from './OptionPills'
+import { joinOptionText, splitOptionText } from './questionOptions'
 import { CategoryField, CategoryPanel } from './QuestionCategory'
 import QuestionTelugu, { fillTeluguFromEnglish } from './QuestionTelugu'
 import { PortalSkeleton } from './PortalUI'
@@ -271,12 +272,7 @@ export default function AdminQuestionsScreen({ onToast, user }) {
       const cleaned = questions.map((q, idx) => {
         const qIndex = idx + 1
         const optsFromText =
-          q.optionsText != null
-            ? String(q.optionsText)
-                .split(',')
-                .map((s) => s.trim())
-                .filter(Boolean)
-            : null
+          q.optionsText != null ? splitOptionText(q.optionsText) : null
         const finalOptions =
           optsFromText && optsFromText.length > 0
             ? optsFromText
@@ -499,7 +495,7 @@ export default function AdminQuestionsScreen({ onToast, user }) {
         const hasOptions = ['choice', 'multi_select', 'multi', 'yesno', 'abc', 'sentiment', 'sentiment_text', 'range', 'numeric_range', 'age'].includes(type)
         const currentOpts = Array.isArray(q.options) && q.options.length > 0
           ? q.options
-          : (q.optionsText || '').split(',').map((s) => s.trim()).filter(Boolean)
+          : splitOptionText(q.optionsText)
         const hidden = !isQuestionVisible(q)
 
         if (i !== activeIndex) {
@@ -611,12 +607,11 @@ export default function AdminQuestionsScreen({ onToast, user }) {
                     value={
                       q.optionsText != null
                         ? q.optionsText
-                        : (Array.isArray(q.options) && q.options.length ? q.options.join(', ') : defaultOptionsForType(type).join(', '))
+                        : joinOptionText(Array.isArray(q.options) && q.options.length ? q.options : defaultOptionsForType(type))
                     }
                     onChange={(e) => {
                       const val = e.target.value
-                      const parsed = val.split(',').map((s) => s.trim()).filter(Boolean)
-                      updateQ(i, { optionsText: val, options: parsed })
+                      updateQ(i, { optionsText: val, options: splitOptionText(val) })
                     }}
                     placeholder="Option 1, Option 2, Option 3, Option 4"
                     disabled={isFrozen || !canEdit}
@@ -627,7 +622,7 @@ export default function AdminQuestionsScreen({ onToast, user }) {
                   <span style={{ fontSize: 11, fontWeight: 'bold', color: '#38bdf8' }}>Active Option Pills:</span>
                   <OptionPills
                     options={currentOpts.length > 0 ? currentOpts : defaultOptionsForType(type)}
-                    onChange={(list) => updateQ(i, { options: list, optionsText: list.join(', ') })}
+                    onChange={(list) => updateQ(i, { options: list, optionsText: joinOptionText(list) })}
                     addLabel="+ Add Option"
                     addValue={(n) => `Option ${n + 1}`}
                     disabled={isFrozen || !canEdit}

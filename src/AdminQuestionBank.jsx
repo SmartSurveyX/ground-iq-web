@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Icon from './Icons'
 import OptionPills from './OptionPills'
+import { joinOptionText, splitOptionText } from './questionOptions'
 import {
   copyQuestionBank,
   createQuestionBank,
@@ -88,7 +89,7 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
     setEditing(t)
     setName(t.name || '')
     setIsGlobal(!!t.is_global)
-    setQuestions(Array.isArray(t.questions) ? t.questions.map((q) => ({ ...q, optionsText: (q.options || []).join(', ') })) : [])
+    setQuestions(Array.isArray(t.questions) ? t.questions.map((q) => ({ ...q, optionsText: joinOptionText(q.options || []) })) : [])
   }
 
   function updateQ(i, patch) {
@@ -97,7 +98,7 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
 
   function handleTypeChange(i, newType) {
     const defaults = defaultOptionsForType(newType)
-    updateQ(i, { type: newType, options: defaults, optionsText: defaults.join(', ') })
+    updateQ(i, { type: newType, options: defaults, optionsText: joinOptionText(defaults) })
   }
 
   function addQ() {
@@ -122,12 +123,7 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
     return questions.map((q, idx) => {
       const qIndex = idx + 1
       const optsFromText =
-        q.optionsText != null
-          ? String(q.optionsText)
-              .split(',')
-              .map((s) => s.trim())
-              .filter(Boolean)
-          : null
+        q.optionsText != null ? splitOptionText(q.optionsText) : null
       const finalOptions =
         optsFromText && optsFromText.length > 0
           ? optsFromText
@@ -254,7 +250,7 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
           const hasOptions = ['choice', 'yesno', 'abc', 'sentiment', 'sentiment_text', 'range', 'numeric_range', 'age'].includes(type)
           const currentOpts = Array.isArray(q.options) && q.options.length > 0
             ? q.options
-            : (q.optionsText || '').split(',').map((s) => s.trim()).filter(Boolean)
+            : splitOptionText(q.optionsText)
 
           return (
             <div key={q._uid || `qi-${i}`} className="card" style={{ marginBottom: 14, borderLeft: '4px solid #38bdf8' }}>
@@ -287,10 +283,10 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
                   <label className="field" style={{ marginBottom: 8 }}>
                     <span>Answer Options (comma-separated)</span>
                     <input
-                      value={q.optionsText != null ? q.optionsText : (Array.isArray(q.options) && q.options.length ? q.options.join(', ') : defaultOptionsForType(type).join(', '))}
+                      value={q.optionsText != null ? q.optionsText : joinOptionText(Array.isArray(q.options) && q.options.length ? q.options : defaultOptionsForType(type))}
                       onChange={(e) => {
                         const val = e.target.value
-                        updateQ(i, { optionsText: val, options: val.split(',').map((s) => s.trim()).filter(Boolean) })
+                        updateQ(i, { optionsText: val, options: splitOptionText(val) })
                       }}
                       placeholder="Satisfied, Neutral, Unsatisfied, Don't Know"
                     />

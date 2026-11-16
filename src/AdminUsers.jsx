@@ -26,6 +26,7 @@ import {
 import VerifiedBadge from './VerifiedBadge'
 import PhoneIndiaField from './PhoneIndiaField'
 import ShareAppLink from './components/ShareAppLink'
+import ProfilePhoto from './components/ProfilePhoto'
 import { digits10, isValidInMobile, toE164In, formatInMobile } from './phoneIn'
 import { compressImageFile } from './mediaOptimize'
 import { PortalSkeleton } from './PortalUI'
@@ -1814,17 +1815,16 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
                   {/* Top Bar: Avatar, Identity, Badges & Status */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                      {u.photo ? (
-                        <img
-                          src={u.photo}
-                          alt=""
-                          style={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover', border: '2px solid #4f7dc6', flexShrink: 0 }}
-                        />
-                      ) : (
-                        <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#f1f5f9', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          <Icon name="user" size={18} />
-                        </div>
-                      )}
+                      <ProfilePhoto
+                        src={u.photo}
+                        alt=""
+                        style={{ width: 38, height: 38, borderRadius: '50%', objectFit: 'cover', border: '2px solid #4f7dc6', flexShrink: 0 }}
+                        fallback={(
+                          <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#f1f5f9', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <Icon name="user" size={18} />
+                          </div>
+                        )}
+                      />
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <strong style={{ fontSize: 15, color: '#0f172a' }}>
@@ -2209,17 +2209,16 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
 
                 {/* Profile Identity Bar */}
                 <div style={{ display: 'flex', gap: 12, alignItems: 'center', background: '#f8fafc', padding: 12, borderRadius: 10, border: '1px solid #e2e8f0', marginBottom: 12 }}>
-                  {profileUser.photo ? (
-                    <img
-                      src={profileUser.photo}
-                      alt="Profile"
-                      style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', border: '2px solid #4f7dc6' }}
-                    />
-                  ) : (
-                    <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Icon name="user" size={22} />
-                    </div>
-                  )}
+                  <ProfilePhoto
+                    src={profileUser.photo}
+                    alt="Profile"
+                    style={{ width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', border: '2px solid #4f7dc6' }}
+                    fallback={(
+                      <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Icon name="user" size={22} />
+                      </div>
+                    )}
+                  />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <h4 style={{ margin: 0, fontSize: 16, color: '#0f172a', fontWeight: 800 }}>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Icon from './Icons'
 import OptionPills from './OptionPills'
+import { joinOptionText, splitOptionText } from './questionOptions'
 import {
   createSurvey,
   deleteSurvey,
@@ -138,7 +139,7 @@ function QuestionEditor({
         const hasOptions = ['choice', 'yesno', 'abc', 'sentiment', 'sentiment_text', 'range', 'numeric_range', 'age'].includes(type)
         const currentOpts = Array.isArray(q.options) && q.options.length > 0
           ? q.options
-          : (q.optionsText || '').split(',').map((s) => s.trim()).filter(Boolean)
+          : splitOptionText(q.optionsText)
 
         return (
           <div key={q._uid || `qi-${i}`} className="card" style={{ marginBottom: 14, borderLeft: '4px solid #4f7dc6' }}>
@@ -205,12 +206,11 @@ function QuestionEditor({
                     value={
                       q.optionsText != null
                         ? q.optionsText
-                        : (Array.isArray(q.options) && q.options.length ? q.options.join(', ') : defaultOptionsForType(type).join(', '))
+                        : joinOptionText(Array.isArray(q.options) && q.options.length ? q.options : defaultOptionsForType(type))
                     }
                     onChange={(e) => {
                       const val = e.target.value
-                      const parsed = val.split(',').map((s) => s.trim()).filter(Boolean)
-                      updateQ(i, { optionsText: val, options: parsed })
+                      updateQ(i, { optionsText: val, options: splitOptionText(val) })
                     }}
                     placeholder="10-20, 21-30, 31-40, 41-50, 50+"
                   />
@@ -220,7 +220,7 @@ function QuestionEditor({
                   <span style={{ fontSize: 11, fontWeight: 'bold', color: '#38bdf8' }}>Active Range/Option Pills:</span>
                   <OptionPills
                     options={currentOpts.length > 0 ? currentOpts : defaultOptionsForType(type)}
-                    onChange={(list) => updateQ(i, { options: list, optionsText: list.join(', ') })}
+                    onChange={(list) => updateQ(i, { options: list, optionsText: joinOptionText(list) })}
                     addLabel="+ Add Range"
                     addValue="51-60"
                   />
@@ -376,12 +376,7 @@ function cleanQuestions(questions) {
   const used = new Set()
   return (questions || []).map((q, idx) => {
     const optsFromText =
-      q.optionsText != null
-        ? String(q.optionsText)
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : null
+      q.optionsText != null ? splitOptionText(q.optionsText) : null
     const finalOptions =
       optsFromText && optsFromText.length > 0
         ? optsFromText
