@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Icon from './Icons'
-import OptionPills from './OptionPills'
-import { joinOptionText, splitOptionText } from './questionOptions'
+import OptionEditor from './components/OptionEditor'
 import {
   createSurvey,
   deleteSurvey,
@@ -98,11 +97,7 @@ function QuestionEditor({
 
   function handleTypeChange(i, newType) {
     const defaults = defaultOptionsForType(newType)
-    updateQ(i, {
-      type: newType,
-      options: defaults,
-      optionsText: defaults.join(', '),
-    })
+    updateQ(i, { type: newType, options: defaults })
   }
 
   function addQ() {
@@ -137,9 +132,7 @@ function QuestionEditor({
       {questions.map((q, i) => {
         const type = q.type || 'text'
         const hasOptions = ['choice', 'yesno', 'abc', 'sentiment', 'sentiment_text', 'range', 'numeric_range', 'age'].includes(type)
-        const currentOpts = Array.isArray(q.options) && q.options.length > 0
-          ? q.options
-          : splitOptionText(q.optionsText)
+        const currentOpts = Array.isArray(q.options) ? q.options : []
 
         return (
           <div key={q._uid || `qi-${i}`} className="card" style={{ marginBottom: 14, borderLeft: '4px solid #4f7dc6' }}>
@@ -200,31 +193,12 @@ function QuestionEditor({
 
             {hasOptions && (
               <div style={{ marginTop: 10, background: 'rgba(15,23,42,0.05)', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
-                <label className="field" style={{ marginBottom: 8 }}>
-                  <span>Answer Options / Range Pills (comma-separated list, e.g. 10-20, 21-30, 31-40, 50+)</span>
-                  <input
-                    value={
-                      q.optionsText != null
-                        ? q.optionsText
-                        : joinOptionText(Array.isArray(q.options) && q.options.length ? q.options : defaultOptionsForType(type))
-                    }
-                    onChange={(e) => {
-                      const val = e.target.value
-                      updateQ(i, { optionsText: val, options: splitOptionText(val) })
-                    }}
-                    placeholder="10-20, 21-30, 31-40, 41-50, 50+"
-                  />
-                </label>
-
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, fontWeight: 'bold', color: '#38bdf8' }}>Active Range/Option Pills:</span>
-                  <OptionPills
-                    options={currentOpts.length > 0 ? currentOpts : defaultOptionsForType(type)}
-                    onChange={(list) => updateQ(i, { options: list, optionsText: joinOptionText(list) })}
-                    addLabel="+ Add Range"
-                    addValue="51-60"
-                  />
-                </div>
+                <OptionEditor
+                  options={currentOpts.length > 0 ? currentOpts : defaultOptionsForType(type)}
+                  onChange={(options) => updateQ(i, { options })}
+                  addLabel="+ Add Range"
+                  addValue="51-60"
+                />
               </div>
             )}
 
@@ -375,13 +349,9 @@ function QuestionEditor({
 function cleanQuestions(questions) {
   const used = new Set()
   return (questions || []).map((q, idx) => {
-    const optsFromText =
-      q.optionsText != null ? splitOptionText(q.optionsText) : null
     const finalOptions =
-      optsFromText && optsFromText.length > 0
-        ? optsFromText
-        : Array.isArray(q.options) && q.options.length > 0
-          ? q.options
+      Array.isArray(q.options) && q.options.length > 0
+        ? q.options
           : q.type === 'yesno'
             ? ['Yes', 'No']
             : q.type === 'abc'

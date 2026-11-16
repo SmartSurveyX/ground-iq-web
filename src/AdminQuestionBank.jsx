@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import Icon from './Icons'
-import OptionPills from './OptionPills'
-import { joinOptionText, splitOptionText } from './questionOptions'
+import OptionEditor from './components/OptionEditor'
 import {
   copyQuestionBank,
   createQuestionBank,
@@ -89,7 +88,7 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
     setEditing(t)
     setName(t.name || '')
     setIsGlobal(!!t.is_global)
-    setQuestions(Array.isArray(t.questions) ? t.questions.map((q) => ({ ...q, optionsText: joinOptionText(q.options || []) })) : [])
+    setQuestions(Array.isArray(t.questions) ? t.questions.map((q) => ({ ...q })) : [])
   }
 
   function updateQ(i, patch) {
@@ -98,7 +97,7 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
 
   function handleTypeChange(i, newType) {
     const defaults = defaultOptionsForType(newType)
-    updateQ(i, { type: newType, options: defaults, optionsText: joinOptionText(defaults) })
+    updateQ(i, { type: newType, options: defaults })
   }
 
   function addQ() {
@@ -123,7 +122,7 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
     return questions.map((q, idx) => {
       const qIndex = idx + 1
       const optsFromText =
-        q.optionsText != null ? splitOptionText(q.optionsText) : null
+        null
       const finalOptions =
         optsFromText && optsFromText.length > 0
           ? optsFromText
@@ -250,7 +249,7 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
           const hasOptions = ['choice', 'yesno', 'abc', 'sentiment', 'sentiment_text', 'range', 'numeric_range', 'age'].includes(type)
           const currentOpts = Array.isArray(q.options) && q.options.length > 0
             ? q.options
-            : splitOptionText(q.optionsText)
+            : []
 
           return (
             <div key={q._uid || `qi-${i}`} className="card" style={{ marginBottom: 14, borderLeft: '4px solid #38bdf8' }}>
@@ -280,25 +279,12 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
               </label>
               {hasOptions && (
                 <div style={{ marginTop: 10, background: 'rgba(15,23,42,0.05)', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
-                  <label className="field" style={{ marginBottom: 8 }}>
-                    <span>Answer Options (comma-separated)</span>
-                    <input
-                      value={q.optionsText != null ? q.optionsText : joinOptionText(Array.isArray(q.options) && q.options.length ? q.options : defaultOptionsForType(type))}
-                      onChange={(e) => {
-                        const val = e.target.value
-                        updateQ(i, { optionsText: val, options: splitOptionText(val) })
-                      }}
-                      placeholder="Satisfied, Neutral, Unsatisfied, Don't Know"
-                    />
-                  </label>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <OptionPills
-                      options={currentOpts.length > 0 ? currentOpts : defaultOptionsForType(type)}
-                      onChange={(list) => updateQ(i, { options: list, optionsText: list.join(', ') })}
-                      addLabel="+ Add Option"
-                      addValue={(n) => `Option ${n}`}
-                    />
-                  </div>
+                  <OptionEditor
+                    options={currentOpts.length > 0 ? currentOpts : defaultOptionsForType(type)}
+                    onChange={(options) => updateQ(i, { options })}
+                    addLabel="+ Add Option"
+                    addValue={(n) => `Option ${n}`}
+                  />
                 </div>
               )}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, margin: '10px 0 0' }}>

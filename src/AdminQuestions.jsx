@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Icon from './Icons'
 import { getQuestions, getSurvey, listSurveys, saveQuestions, updateSurvey } from './api'
-import OptionPills from './OptionPills'
-import { joinOptionText, splitOptionText } from './questionOptions'
+import OptionEditor from './components/OptionEditor'
 import { CategoryField, CategoryPanel } from './QuestionCategory'
 import QuestionTelugu, { fillTeluguFromEnglish } from './QuestionTelugu'
 import { PortalSkeleton } from './PortalUI'
@@ -171,11 +170,7 @@ export default function AdminQuestionsScreen({ onToast, user }) {
 
   function handleTypeChange(i, newType) {
     const defaults = defaultOptionsForType(newType)
-    updateQ(i, {
-      type: newType,
-      options: defaults,
-      optionsText: defaults.join(', '),
-    })
+    updateQ(i, { type: newType, options: defaults })
   }
 
   const maxQs = !isSuperAdmin ? Number(user?.max_questions_per_survey) || 0 : 0
@@ -271,13 +266,9 @@ export default function AdminQuestionsScreen({ onToast, user }) {
       const used = new Set()
       const cleaned = questions.map((q, idx) => {
         const qIndex = idx + 1
-        const optsFromText =
-          q.optionsText != null ? splitOptionText(q.optionsText) : null
         const finalOptions =
-          optsFromText && optsFromText.length > 0
-            ? optsFromText
-            : Array.isArray(q.options) && q.options.length > 0
-              ? q.options
+          Array.isArray(q.options) && q.options.length > 0
+            ? q.options
               : q.type === 'yesno'
                 ? ['Yes', 'No']
                 : q.type === 'abc'
@@ -493,9 +484,7 @@ export default function AdminQuestionsScreen({ onToast, user }) {
       {questions.map((q, i) => {
         const type = q.type || 'text'
         const hasOptions = ['choice', 'multi_select', 'multi', 'yesno', 'abc', 'sentiment', 'sentiment_text', 'range', 'numeric_range', 'age'].includes(type)
-        const currentOpts = Array.isArray(q.options) && q.options.length > 0
-          ? q.options
-          : splitOptionText(q.optionsText)
+        const currentOpts = Array.isArray(q.options) ? q.options : []
         const hidden = !isQuestionVisible(q)
 
         if (i !== activeIndex) {
@@ -601,33 +590,13 @@ export default function AdminQuestionsScreen({ onToast, user }) {
 
             {hasOptions && (
               <div style={{ marginTop: 10, background: 'rgba(15,23,42,0.05)', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
-                <label className="field" style={{ marginBottom: 8 }}>
-                  <span>Answer Options (comma-separated or add chips below)</span>
-                  <input
-                    value={
-                      q.optionsText != null
-                        ? q.optionsText
-                        : joinOptionText(Array.isArray(q.options) && q.options.length ? q.options : defaultOptionsForType(type))
-                    }
-                    onChange={(e) => {
-                      const val = e.target.value
-                      updateQ(i, { optionsText: val, options: splitOptionText(val) })
-                    }}
-                    placeholder="Option 1, Option 2, Option 3, Option 4"
-                    disabled={isFrozen || !canEdit}
-                  />
-                </label>
-
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, fontWeight: 'bold', color: '#38bdf8' }}>Active Option Pills:</span>
-                  <OptionPills
-                    options={currentOpts.length > 0 ? currentOpts : defaultOptionsForType(type)}
-                    onChange={(list) => updateQ(i, { options: list, optionsText: joinOptionText(list) })}
-                    addLabel="+ Add Option"
-                    addValue={(n) => `Option ${n + 1}`}
-                    disabled={isFrozen || !canEdit}
-                  />
-                </div>
+                <OptionEditor
+                  options={currentOpts.length > 0 ? currentOpts : defaultOptionsForType(type)}
+                  onChange={(options) => updateQ(i, { options })}
+                  addLabel="+ Add Option"
+                  addValue={(n) => `Option ${n + 1}`}
+                  disabled={isFrozen || !canEdit}
+                />
               </div>
             )}
 
