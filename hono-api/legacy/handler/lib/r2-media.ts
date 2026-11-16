@@ -295,6 +295,46 @@ export async function presignGet(
   return `https://${host}/${useBucket}/${pathKey}?${canonicalQuery}&X-Amz-Signature=${signature}`;
 }
 
+/** True when a stored media URL points into our R2 bucket (public r2.dev, a
+ * custom public domain, or the private S3 endpoint). */
+function isR2MediaUrl(raw: string): boolean {
+  try {
+    const host = new URL(raw).host.toLowerCase();
+    const cfg = r2Config();
+    if (cfg.host && host === cfg.host.toLowerCase()) return true;
+    if (cfg.publicBase) {
+      try {
+        if (host === new URL(cfg.publicBase).host.toLowerCase()) return true;
+      } catch {
+        /* bad public base — fall through to the suffix checks */
+      }
+    }
+    return /(^|\.)r2\.dev$/i.test(host) || /\.r2\.cloudflarestorage\.com$/i.test(host);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Profile photo / Aadhaar images are stored as R2 URLs or data URLs. The
+ * bucket is private, so a stored public URL (r2.dev / custom domain) is not
+ * readable with a plain <img src>. Swap R2-hosted values for a presigned GET
+ * URL; leave data: URLs and other providers untouched.
+ */
+export async function profileMediaUrl(
+  value: string | null | undefined,
+  expiresSeconds = 21600,
+): Promise<string | null> {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (!/^https?:\/\//i.test(raw)) return raw; // data: URL, /api path or bare key
+  if (!isR2MediaUrl(raw)) return raw;
+  const key = objectKeyFromUrl(raw);
+  if (!key) return raw;
+  const signed = await presignGet(key, expiresSeconds).catch(() => null);
+  return signed || raw;
+}
+
 export async function uploadToCloudflareR2(
   bytes: Uint8Array<ArrayBuffer>,
   mime: string,

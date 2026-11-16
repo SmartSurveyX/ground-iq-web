@@ -22,6 +22,7 @@ import {
   progressStatus,
 } from "../lib/progress.ts";
 import {
+  profileMediaUrl,
   tryOptionalExternalUpload,
 } from "../lib/r2-media.ts";
 import {
@@ -238,6 +239,12 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
             : [],
         }));
       }
+      // Private bucket: presign so the admin's <img> can open the file.
+      const [photoUrl, aadhaarFrontUrl, aadhaarBackUrl] = await Promise.all([
+        profileMediaUrl(r.photo as string | null),
+        profileMediaUrl(r.aadhaar_front as string | null),
+        profileMediaUrl(r.aadhaar_back as string | null),
+      ]);
       users.push({
         id: r.id,
         username: r.username,
@@ -265,9 +272,9 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
         done,
         key_id: r.key_id || null,
         phone: r.phone || null,
-        photo: r.photo || null,
-        aadhaar_front: r.aadhaar_front || null,
-        aadhaar_back: r.aadhaar_back || null,
+        photo: photoUrl,
+        aadhaar_front: aadhaarFrontUrl,
+        aadhaar_back: aadhaarBackUrl,
         verified: sqlBool(r.verified),
         can_manage_questions: sqlBool(r.can_manage_questions),
         can_edit_surveys: sqlBool(r.can_edit_surveys),
@@ -687,13 +694,18 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
     if (me.role === "surveyor" && fields.length) {
       logAudit(me, "profile_media", "user", targetId, { fields });
     }
+    const [uploadPhotoUrl, uploadFrontUrl, uploadBackUrl] = await Promise.all([
+      profileMediaUrl(u.photo as string | null),
+      profileMediaUrl(u.aadhaar_front as string | null),
+      profileMediaUrl(u.aadhaar_back as string | null),
+    ]);
     return json({
       ok: true,
       user_id: u.id,
       username: u.username,
-      photo: u.photo || null,
-      aadhaar_front: u.aadhaar_front || null,
-      aadhaar_back: u.aadhaar_back || null,
+      photo: uploadPhotoUrl,
+      aadhaar_front: uploadFrontUrl,
+      aadhaar_back: uploadBackUrl,
     });
   }
 
@@ -1006,6 +1018,11 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
     }
 
     const u = rows[0] as Record<string, unknown>;
+    const [patchPhotoUrl, patchFrontUrl, patchBackUrl] = await Promise.all([
+      profileMediaUrl((u.photo || nextPhoto) as string | null),
+      profileMediaUrl((u.aadhaar_front || nextAadhaarFront) as string | null),
+      profileMediaUrl((u.aadhaar_back || nextAadhaarBack) as string | null),
+    ]);
     return json({
       ok: true,
       user: {
@@ -1019,9 +1036,9 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
         target_quota: u.target_quota ?? nextQuota,
         key_id: u.key_id || null,
         phone: u.phone || nextPhone || null,
-        photo: u.photo || nextPhoto || null,
-        aadhaar_front: u.aadhaar_front || nextAadhaarFront || null,
-        aadhaar_back: u.aadhaar_back || nextAadhaarBack || null,
+        photo: patchPhotoUrl,
+        aadhaar_front: patchFrontUrl,
+        aadhaar_back: patchBackUrl,
         verified: sqlBool(u.verified),
         can_manage_questions: sqlBool(u.can_manage_questions),
         can_edit_surveys: sqlBool(u.can_edit_surveys),

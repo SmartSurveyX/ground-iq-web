@@ -16,6 +16,9 @@ import {
   invalidateSessionCache,
   sqlCountN,
 } from "../lib/users.ts";
+import {
+  profileMediaUrl,
+} from "../lib/r2-media.ts";
 
 export async function handleSession(c: Ctx): Promise<Response | null> {
   const { path, method, token, me } = c;
@@ -30,13 +33,22 @@ export async function handleSession(c: Ctx): Promise<Response | null> {
     const media = Array.isArray(mediaRows) && mediaRows[0]
       ? (mediaRows[0] as Record<string, unknown>)
       : null;
+    // The bucket is private — hand the app presigned GET URLs so <img> can
+    // render the photo / Aadhaar documents instead of a broken image.
+    const [photoUrl, aadhaarFrontUrl, aadhaarBackUrl] = media
+      ? await Promise.all([
+        profileMediaUrl(media.photo as string | null),
+        profileMediaUrl(media.aadhaar_front as string | null),
+        profileMediaUrl(media.aadhaar_back as string | null),
+      ])
+      : [null, null, null];
     const withMedia = {
       ...me,
       ...(media
         ? {
-            photo: media.photo || null,
-            aadhaar_front: media.aadhaar_front || null,
-            aadhaar_back: media.aadhaar_back || null,
+            photo: photoUrl,
+            aadhaar_front: aadhaarFrontUrl,
+            aadhaar_back: aadhaarBackUrl,
           }
         : {}),
     };
