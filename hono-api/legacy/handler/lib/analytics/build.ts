@@ -11,8 +11,15 @@ import {
 } from "./answers.ts";
 import {
   countAnalyticsRows,
+  getAcList,
   loadAnalyticsRows,
+  normKeyStatic,
 } from "./loader.ts";
+import {
+  buildWardAcVotes,
+  groupWards,
+  normWardKey,
+} from "./ward-groups.ts";
 import {
   sql,
 } from "../db.ts";
@@ -318,6 +325,49 @@ export async function buildAnalytics(
     universe = universe.filter((r) => r.completeness === "incomplete");
   }
 
+  // ── Ward → Assembly Constituency grouping (legacy data) ──────────────
+  // Legacy rows carry a "Ward" answer; many also carry a resolvable AC. No
+  // ward→AC reference table exists, so derive it from co-occurrence (one vote
+  // per row that has both), then rewrite rows whose constituency is a ward
+  // string (or unknown) to their assembly region. Keeps "Top constituencies",
+  // the assembly map and party crosstabs constrained to assembly regions
+  // instead of raw ward names.
+  const wardQ = surveyQuestions.find(
+    (q) => /ward/i.test(String(q.id || "")) || /ward/i.test(String(q.label || "")),
+  );
+  const wardValueOf = (r: Row): string => {
+    if (wardQ) {
+      const av = answersByQuestionId(r.answers, surveyQuestions).get(wardQ.id);
+      const s = String(av ?? "").trim();
+      if (s) return s;
+    }
+    const a = r.answers || {};
+    return String(a.ward || a.booth || a.ballot || "").trim();
+  };
+  const acList = await getAcList(sqlFn);
+  const acNorm = new Set(acList.map((ac) => normKeyStatic(ac.canonical)));
+  const isCanonicalAc = (v: string) => {
+    const s = String(v || "").trim();
+    return s !== "" && s !== "Unknown" && acNorm.has(normKeyStatic(s));
+  };
+  const wardVotes: { ward: unknown; ac: unknown }[] = [];
+  for (const r of universe) {
+    if (isCanonicalAc(r.constituency)) {
+      const w = wardValueOf(r);
+      if (w) wardVotes.push({ ward: w, ac: r.constituency });
+    }
+  }
+  const wardToAc = buildWardAcVotes(wardVotes);
+  if (wardToAc.size) {
+    for (const r of universe) {
+      if (isCanonicalAc(r.constituency)) continue;
+      const w = wardValueOf(r);
+      if (!w) continue;
+      const mapped = wardToAc.get(normWardKey(w));
+      if (mapped) r.constituency = mapped;
+    }
+  }
+
   const totalAll = universe.length;
   const filterOptions = {
     districts: [...new Set(universe.map((r) => r.district).filter((d) => d && d !== "Unknown"))].sort(),
@@ -345,6 +395,27 @@ export async function buildAnalytics(
   const subsetIds = new Set(subset.map((r) => r.id));
   const restRows = universe.filter((r) => !subsetIds.has(r.id));
   const rows = subset;
+
+  // Ward counts over the current page filters, grouped under their assembly
+  // region (wardByAc). Rows without a ward answer contribute nothing.
+  const wardEntryMap = new Map<string, number>();
+  for (const r of rows) {
+    const w = wardValueOf(r);
+    if (w) wardEntryMap.set(w, (wardEntryMap.get(w) || 0) + 1);
+  }
+  const wardByAc = wardEntryMap.size
+    ? withTeLabels(
+      withPct(
+        groupWards([...wardEntryMap.entries()], wardToAc).map((g) => ({
+          name: g.name,
+          value: g.value,
+          wards: g.wards,
+          pct: 0,
+        })),
+      ),
+      "place",
+    )
+    : [];
 
   const countKey = (list: Row[], key: keyof Row) =>
     withPct(
@@ -453,6 +524,22 @@ export async function buildAnalytics(
       }
     }
     const order = q.options;
+    // Ward question: group the ward values under their assembly region so the
+    // chart shows AC bars (hover reveals the wards). Unmapped wards keep their
+    // own "Unmapped wards" group instead of masquerading as constituencies.
+    if (wardQ && q.id === wardQ.id) {
+      return withTeLabels(
+        withPct(
+          groupWards([...map.entries()], wardToAc).map((g) => ({
+            name: g.name,
+            value: g.value,
+            wards: g.wards,
+            pct: 0,
+          })),
+        ),
+        "place",
+      );
+    }
     let entries = [...map.entries()];
     entries.sort((a, b) => {
       const ia = order.findIndex((o) => o.toLowerCase() === a[0].toLowerCase());
@@ -834,6 +921,7 @@ export async function buildAnalytics(
       byEducation,
       byEmployment,
       byConstituency,
+      wardByAc,
       byAge,
       byMp,
       issues,

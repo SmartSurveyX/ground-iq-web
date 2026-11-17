@@ -211,16 +211,25 @@ const EmptyChart = memo(function EmptyChart({ label = 'No data for current filte
  * One chart card per question. When the survey tags questions with categories the cards
  * are grouped under collapsible headers; untagged surveys render the flat list unchanged.
  */
-const QuestionChartsBlock = memo(function QuestionChartsBlock({ questions = [], order = [], lang, onPick }) {
+const QuestionChartsBlock = memo(function QuestionChartsBlock({ questions = [], order = [], lang, onPick, onPickConstituency }) {
   const [closed, setClosed] = useState(() => ({}))
 
   const card = (q) => {
     const counts = rowsFromSurveyQuestion(q)
-    const pick = (_, name) => onPick?.(q.id, name)
+    // Ward question is grouped by assembly region server-side — clicking an AC
+    // bar filters the page by that constituency (not by a raw ward value).
+    const isWardQ = /ward/i.test(String(q.id || '')) || /ward/i.test(String(q.label || ''))
+    const pick = (_, name) => (isWardQ
+      ? onPickConstituency?.(name)
+      : onPick?.(q.id, name))
     const isMeter = q.type === 'meter' || q.type === 'tapometer'
     const pieOk = !isMeter && chartShouldUsePie(counts)
     return (
-      <ChartCard key={q.id} title={questionFilterTitle(q, lang)} subtitle="Every option for this question">
+      <ChartCard
+        key={q.id}
+        title={questionFilterTitle(q, lang)}
+        subtitle={isWardQ ? 'Assembly regions — hover a bar to see its wards' : 'Every option for this question'}
+      >
         {isMeter ? (
           <MeterChart q={q} rows={counts} lang={lang} onSelect={pick} />
         ) : pieOk ? (
@@ -328,8 +337,9 @@ function PctTooltip({ active, payload, label, lang = 'en' }) {
   if (!active || !payload?.length) return null
   const p = payload[0]?.payload
   const title = lang === 'te' ? p?.label || label || p?.name : p?.name || label
+  const wards = Array.isArray(p?.wards) ? p.wards : []
   return (
-    <div className="recharts-custom-tip" style={{ ...tipStyle, padding: '8px 10px' }}>
+    <div className="recharts-custom-tip" style={{ ...tipStyle, padding: '8px 10px', maxWidth: 280 }}>
       <div style={{ color: '#e2e8f0', fontWeight: 700 }}>{title}</div>
       {payload.map((item) => (
         <div key={item.dataKey} style={{ color: item.color || '#94a3b8' }}>
@@ -337,6 +347,24 @@ function PctTooltip({ active, payload, label, lang = 'en' }) {
           {p?.pct != null && item.dataKey === 'value' ? ` (${p.pct}%)` : ''}
         </div>
       ))}
+      {wards.length > 0 && (
+        <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid #2a3648' }}>
+          <div style={{ color: '#7dd3fc', fontWeight: 700, marginBottom: 3 }}>
+            Wards ({wards.length})
+          </div>
+          <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+            {wards.slice(0, 25).map(([ward, n]) => (
+              <div key={ward} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, color: '#cbd5e1' }}>
+                <span>{ward}</span>
+                <span style={{ color: '#94a3b8' }}>{n}</span>
+              </div>
+            ))}
+            {wards.length > 25 && (
+              <div style={{ color: '#64748b', marginTop: 2 }}>+{wards.length - 25} more…</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1278,6 +1306,7 @@ export default function DashboardScreen({ onToast }) {
               order={(charts?.questionCategories || []).map((c) => c.name)}
               lang={filterLang}
               onPick={drillQuestion}
+              onPickConstituency={(name) => drillFilter('constituency', name)}
             />
 
             <ChartCard title="Top constituencies" subtitle="Click a bar to filter" tall>

@@ -112,6 +112,10 @@ export default function SurveyMap({
       pcCounts: countMap(charts.byMp || []),
       pcLead: leadPartyMap(charts.partyByMp || { columns: [], rows: [] }),
       districtCount: districtSeries.length,
+      // Ward → AC map (legacy grouping): assembly tooltip lists the wards
+      wardsByAc: new Map(
+        (charts.wardByAc || []).map((g) => [canonicalKey(g.name), g.wards || []]),
+      ),
     }
   }, [analytics])
 
@@ -243,12 +247,23 @@ export default function SurveyMap({
         const lead = lookup(leads, name)
         const value = stat?.value || 0
         const pct = stat?.pct
+        // Assembly layer: list the wards grouped under this AC on hover
+        const wards = isAssembly ? (lookup(dataMaps.wardsByAc, name) || []) : []
+
+        const wardHtml = wards.length
+          ? `<div style="margin-top:4px;border-top:1px solid #334155;padding-top:4px">
+               <div style="color:#7dd3fc;font-weight:700">Wards (${wards.length})</div>
+               ${wards.slice(0, 8).map(([w, n]) => `<div>${w} <span style="color:#94a3b8">${n}</span></div>`).join('')}
+               ${wards.length > 8 ? `<div style="color:#64748b">+${wards.length - 8} more…</div>` : ''}
+             </div>`
+          : ''
 
         const html = `
           <div class="map-popup">
             <strong>${name}</strong>
             <div>Responses: <b>${value.toLocaleString()}</b>${pct != null ? ` (${pct}%)` : ''}</div>
             ${lead?.party ? `<div>Lead: <b style="color:${PARTY_HEX[lead.party] || '#fff'}">${lead.party}</b></div>` : ''}
+            ${wardHtml}
           </div>
         `
         lyr.bindTooltip(html, {
@@ -263,6 +278,7 @@ export default function SurveyMap({
             value,
             pct,
             party: lead?.party,
+            wards,
           })
           lyr.setStyle({ weight: 2, color: '#4f7dc6' })
         })
@@ -356,6 +372,12 @@ export default function SurveyMap({
             {hover.party && colorMode === 'party' && (
               <span style={{ color: PARTY_HEX[hover.party] || '#fff' }}>
                 Lead: {hover.party}
+              </span>
+            )}
+            {hover.wards?.length > 0 && (
+              <span style={{ color: '#7dd3fc', fontSize: 11 }}>
+                Wards: {hover.wards.slice(0, 4).map(([w]) => w).join(', ')}
+                {hover.wards.length > 4 ? ` +${hover.wards.length - 4} more` : ''}
               </span>
             )}
           </div>
