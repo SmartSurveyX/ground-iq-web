@@ -215,10 +215,19 @@ const QuestionChartsBlock = memo(function QuestionChartsBlock({ questions = [], 
   const [closed, setClosed] = useState(() => ({}))
 
   const card = (q) => {
-    const counts = rowsFromSurveyQuestion(q)
     // Ward question is grouped by assembly region server-side — clicking an AC
     // bar filters the page by that constituency (not by a raw ward value).
     const isWardQ = /ward/i.test(String(q.id || '')) || /ward/i.test(String(q.label || ''))
+    // For the ward question the server's option list is every submitted ward
+    // value (~2,100). Rendering those as zero-valued rows buries the grouped AC
+    // bars, so build the rows from the grouped counts only.
+    const counts = isWardQ
+      ? (q?.counts || []).map((c) => ({
+        ...c,
+        value: Number(c.value) || 0,
+        pct: Number(c.pct) || 0,
+      }))
+      : rowsFromSurveyQuestion(q)
     const pick = (_, name) => (isWardQ
       ? onPickConstituency?.(name)
       : onPick?.(q.id, name))
