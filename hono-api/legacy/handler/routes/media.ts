@@ -1,5 +1,8 @@
 import type { Ctx } from "./ctx.ts";
 import {
+  invalidateAnalyticsCache,
+} from "./analytics.ts";
+import {
   b64ToBytes,
   isImageBytes,
   splitDataUrl,
@@ -176,6 +179,7 @@ export async function handleMedia(c: Ctx): Promise<Response | null> {
     await sql`
         UPDATE submissions SET payload = ${sqlJson(payload)} WHERE id = ${id}
       `;
+    invalidateAnalyticsCache();
 
     // After each media piece: if geo+photo+voice+QA all present, auto-confirm for Client Admin
     const auto = await autoConfirmIfComplete(sql, id).catch(() => ({
@@ -394,6 +398,7 @@ export async function handleMedia(c: Ctx): Promise<Response | null> {
     payload.media_storage = "cloudflare_r2";
     payload.media_updated_at = new Date().toISOString();
     await sql`UPDATE submissions SET payload = ${sqlJson(payload)} WHERE id = ${id}`;
+    invalidateAnalyticsCache();
 
     const auto = await autoConfirmIfComplete(sql, id).catch(() => ({
       auto_confirmed: false,

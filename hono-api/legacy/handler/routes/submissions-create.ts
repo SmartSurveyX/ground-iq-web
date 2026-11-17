@@ -1,5 +1,8 @@
 import type { Ctx } from "./ctx.ts";
 import {
+  invalidateAnalyticsCache,
+} from "./analytics.ts";
+import {
   logAudit,
 } from "../lib/audit.ts";
 import {
@@ -319,6 +322,7 @@ export async function handleSubmissionsCreate(c: Ctx): Promise<Response | null> 
       auto_confirmed: false,
       completeness: "incomplete",
     }));
+    invalidateAnalyticsCache();
     return json({
       ok: true,
       id: row.id,

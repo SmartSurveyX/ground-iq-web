@@ -1,5 +1,8 @@
 import type { Ctx } from "./ctx.ts";
 import {
+  invalidateAnalyticsCache,
+} from "./analytics.ts";
+import {
   logAudit,
 } from "../lib/audit.ts";
 import {
@@ -253,6 +256,7 @@ export async function handleSubmissionsCrud(c: Ctx): Promise<Response | null> {
       }
     }
 
+    invalidateAnalyticsCache();
     const answers = (payload.answers || {}) as Record<string, unknown>;
     return json({
       ok: true,
@@ -294,6 +298,7 @@ export async function handleSubmissionsCrud(c: Ctx): Promise<Response | null> {
     await sql`UPDATE survey_respondents SET submission_id = NULL WHERE submission_id = ${id}`.catch(() => null);
     await sql`DELETE FROM submissions WHERE id = ${id}`;
     logAudit(me, "submission_delete", "submission", id, {});
+    invalidateAnalyticsCache();
     return json({
       ok: true,
       id,
@@ -384,6 +389,7 @@ export async function handleSubmissionsCrud(c: Ctx): Promise<Response | null> {
     }
 
     logAudit(me, "submission_status", "submission", id, { status: next, force });
+    invalidateAnalyticsCache();
     return json({
       ok: true,
       id,
@@ -469,6 +475,7 @@ export async function handleSubmissionsCrud(c: Ctx): Promise<Response | null> {
       }
       n += 1;
     }
+    invalidateAnalyticsCache();
     return json({ ok: true, confirmed: n, skipped });
   }
 

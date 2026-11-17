@@ -15,11 +15,11 @@ import {
   isPortalAdmin,
 } from "../lib/users.ts";
 
-// ── Analytics result cache (30s per admin + filter set) ──
+// ── Analytics result cache (5 min per admin + filter set) ──
 // Heavy dashboard/report queries load all rows and compute in JS.
-// Repeated requests with the same filters within 30s return the cached
+// Repeated requests with the same filters within 5 min return the cached
 // result instead of re-running the full computation.
-const ANALYTICS_CACHE_TTL_MS = 30_000;
+const ANALYTICS_CACHE_TTL_MS = 300_000;
 const analyticsCache = new Map<string, { body: unknown; expires: number }>();
 
 function cacheKey(meId: unknown, search: string): string {
