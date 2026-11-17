@@ -34,6 +34,63 @@ function sweepAnalyticsCache(): void {
   }
 }
 
+// ── Background warm-up ──────────────────────────────────────────────
+// The full analytics build takes ~1.5-2s cold (loads every row). The job
+// worker re-runs recently used analytics queries every 2 minutes so the
+// 5-minute cache never lapses for an active user — repeated navigation
+// always serves from cache instead of the cold build.
+const recentKeys = new Map<string, number>();
+const RECENT_WINDOW_MS = 15 * 60_000;
+const WARM_INTERVAL_MS = 120_000;
+let lastWarmAt = 0;
+
+function noteRecentKey(key: string): void {
+  recentKeys.set(key, Date.now());
+  if (recentKeys.size <= 200) return;
+  const now = Date.now();
+  for (const [k, t] of recentKeys) {
+    if (now - t > RECENT_WINDOW_MS) recentKeys.delete(k);
+  }
+}
+
+export async function warmAnalyticsCache(): Promise<void> {
+  const now = Date.now();
+  if (now - lastWarmAt < WARM_INTERVAL_MS) return;
+  lastWarmAt = now;
+  for (const [key, seen] of [...recentKeys.entries()]) {
+    if (now - seen > RECENT_WINDOW_MS) {
+      recentKeys.delete(key);
+      continue;
+    }
+    const cached = analyticsCache.get(key);
+    if (cached && cached.expires - now > 60_000) continue; // still fresh
+    try {
+      const sep = key.indexOf(":");
+      const meId = Number(key.slice(0, sep));
+      const search = key.slice(sep + 1);
+      if (!Number.isFinite(meId) || meId <= 0 || !search) continue;
+      const [u] = (await sql`
+          SELECT id, role, created_by FROM app_users
+          WHERE id = ${meId} AND active = TRUE LIMIT 1
+        `.catch(() => [])) as { id: number; role: string; created_by: number | null }[];
+      const role = String(u?.role || "");
+      if (!isPortalAdmin(role) || !u) {
+        recentKeys.delete(key);
+        continue;
+      }
+      const scopeKeys = role === "super_admin"
+        ? null
+        : await adminFormKeyScope(sql, role === "sub_client_admin"
+          ? { role, id: u.id, created_by: u.created_by }
+          : { role, id: u.id });
+      const body = await buildAnalytics(sql, new URL("http://local" + search), scopeKeys);
+      analyticsCache.set(key, { body, expires: Date.now() + ANALYTICS_CACHE_TTL_MS });
+    } catch (e) {
+      console.error("analytics warm failed:", (e as Error)?.message || e);
+    }
+  }
+}
+
 export function invalidateAnalyticsCache(): void {
   analyticsCache.clear();
 }
@@ -47,6 +104,7 @@ export async function handleAnalytics(c: Ctx): Promise<Response | null> {
 
     // Check cache first — same admin + same filters = same result
     const key = cacheKey(me.id, url.search);
+    noteRecentKey(key);
     const cached = analyticsCache.get(key);
     if (cached && cached.expires > Date.now()) {
       return json(cached.body);

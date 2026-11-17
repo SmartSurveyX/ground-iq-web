@@ -16,6 +16,7 @@ import {
   deleteSonioxFile,
   pollSonioxTranscription,
 } from "../../../lib/soniox.ts";
+import { warmAnalyticsCache } from "../routes/analytics.ts";
 import { runRetentionSweep } from "./retention.ts";
 import { flushTraffic } from "./traffic.ts";
 
@@ -220,6 +221,7 @@ export function startJobWorker(): void {
     await reclaimExpiredJobs();
     await flushTraffic();
     await runRetentionSweep();
+    await warmAnalyticsCache().catch(() => null);
     const jobs = await claimJobs(5);
     for (const job of jobs) {
       try {
