@@ -9,26 +9,35 @@ import {
 } from "./web-links.ts";
 
 /**
- * BR-004 record-layer scope: the form_keys a Client Admin may read/write.
+ * BR-004 record-layer scope: the form_keys a Client Admin (or Sub Client Admin)
+ * may read/write.
  * - Surveys they created (created_by)
  * - Explicit shares (survey_admin_access)
+ * - Company-wide auto-share (company_name / company_id match)
+ * Sub Client Admins resolve through their parent: the anchor is the creating
+ * Client Admin (created_by), plus their own created rows — everything the
+ * parent owns is visible to the sub admin, and vice versa (sub-created users
+ * carry created_by = parent).
  * Super Admin / surveyors: unrestricted (null).
- * Never match company_name / company_id here — that is company-wide
- * auto-share with no grant event. Company share happens only as an
- * explicit Super Admin write of survey_admin_access rows at POST time.
  */
 export async function adminFormKeyScope(
   sqlFn: NonNullable<typeof sql>,
-  me: { role: unknown; id: unknown } | null,
+  me: { role: unknown; id: unknown; created_by?: unknown } | null,
 ): Promise<string[] | null> {
-  if (!me || me.role !== "admin") return null;
-  const adminId = Number(me.id);
+  if (!me) return null;
+  if (me.role !== "admin" && me.role !== "sub_client_admin") return null;
+  const selfId = Number(me.id);
+  const anchorId = me.role === "sub_client_admin"
+    ? Number(me.created_by ?? selfId) // parent Client Admin
+    : selfId;
+  if (!Number.isFinite(anchorId) || anchorId <= 0) return []; // no resolvable anchor: deny
   const rows = await sqlFn`
     SELECT form_key FROM survey_form
-    WHERE created_by = ${adminId}
-       OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id = ${adminId})
-       OR (company_name IS NOT NULL AND company_name <> '' AND LOWER(TRIM(company_name)) = LOWER(TRIM((SELECT company_name FROM app_users WHERE id = ${adminId}))))
-       OR (company_id IS NOT NULL AND company_id = (SELECT company_id FROM app_users WHERE id = ${adminId}))
+    WHERE created_by = ${anchorId}
+       OR created_by = ${selfId}
+       OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id IN (${anchorId}, ${selfId}))
+       OR (company_name IS NOT NULL AND company_name <> '' AND LOWER(TRIM(company_name)) = LOWER(TRIM((SELECT company_name FROM app_users WHERE id = ${anchorId}))))
+       OR (company_id IS NOT NULL AND company_id = (SELECT company_id FROM app_users WHERE id = ${anchorId}))
   `.catch(() => []);
   return [...new Set((rows as { form_key: string }[]).map((r) => String(r.form_key)))];
 }

@@ -18,8 +18,10 @@ import { PortalSkeleton } from './PortalUI'
 /**
  * Grant-based powers (least privilege).
  * Roles: Super Admin creates Projects; Client Admin creates Surveys.
+ * Also used by the Sub Admins screen — a Client Admin delegates a subset of
+ * these powers to each Sub Client Admin.
  */
-const POWER_DEFS = [
+export const POWER_DEFS = [
   { key: 'can_crud_questionnaire', label: 'Create surveys', icon: '🗂', hint: 'Client Admin: create/delete surveys (not Super Admin projects)' },
   { key: 'can_edit_surveys', label: 'Edit survey questions', icon: '▤', hint: 'Edit questions on their surveys' },
   { key: 'can_manage_questions', label: 'Q-Bank', icon: '📚', hint: 'Question Bank template CRUD' },
@@ -75,6 +77,7 @@ export default function AdminClientAdminsScreen({ onToast }) {
   const [maxQInputs, setMaxQInputs] = useState({})
   const [maxSvInputs, setMaxSvInputs] = useState({})
   const [maxSrInputs, setMaxSrInputs] = useState({})
+  const [maxSubInputs, setMaxSubInputs] = useState({})
   const [maxRecInputs, setMaxRecInputs] = useState({})
   const [maxCatInputs, setMaxCatInputs] = useState({})
   const [maxConvRecInputs, setMaxConvRecInputs] = useState({})
@@ -112,6 +115,14 @@ export default function AdminClientAdminsScreen({ onToast }) {
   }, [load])
 
   const admins = users.filter((u) => u.role === 'admin')
+  // Sub admin usage per Client Admin (for the seats input caption)
+  const subCounts = {}
+  for (const u of users) {
+    if (u.role === 'sub_client_admin') {
+      const k = Number(u.created_by || 0)
+      subCounts[k] = (subCounts[k] || 0) + 1
+    }
+  }
   /** Always full map: server base + any in-progress checkbox edits */
   const draftPowers = (u) => ({
     ...powersFromUser(u),
@@ -146,6 +157,7 @@ export default function AdminClientAdminsScreen({ onToast }) {
     setMaxQInputs((m) => ({ ...m, [id]: Number(u.max_questions_per_survey) || 0 }))
     setMaxSvInputs((m) => ({ ...m, [id]: Number(u.max_surveys) || 0 }))
     setMaxSrInputs((m) => ({ ...m, [id]: Number(u.max_surveyors) || 0 }))
+    setMaxSubInputs((m) => ({ ...m, [id]: Number(u.max_sub_admins ?? 2) }))
     setMaxRecInputs((m) => ({ ...m, [id]: Number(u.max_records) || 0 }))
     setMaxConvRecInputs((m) => ({ ...m, [id]: Number(u.converse_max_records) || 0 }))
     setMaxConvMinInputs((m) => ({ ...m, [id]: Number(u.converse_max_minutes) || 0 }))
@@ -184,6 +196,7 @@ export default function AdminClientAdminsScreen({ onToast }) {
       const qRaw = maxQInputs[id] ?? maxQInputs[u.id] ?? u.max_questions_per_survey
       const svRaw = maxSvInputs[id] ?? maxSvInputs[u.id] ?? u.max_surveys
       const srRaw = maxSrInputs[id] ?? maxSrInputs[u.id] ?? u.max_surveyors
+      const subRaw = maxSubInputs[id] ?? maxSubInputs[u.id] ?? u.max_sub_admins ?? 2
       const recRaw = maxRecInputs[id] ?? maxRecInputs[u.id] ?? u.max_records
       const catRaw = maxCatInputs[id] ?? maxCatInputs[u.id] ?? u.max_categories
       const qVal = Math.max(0, Math.min(100000, Number(qRaw) || 0))
@@ -201,6 +214,7 @@ export default function AdminClientAdminsScreen({ onToast }) {
         max_questions_per_survey: qVal,
         max_surveys: svVal,
         max_surveyors: srVal,
+        max_sub_admins: Math.max(0, Math.min(1000, Number(subRaw) || 0)),
         max_records: recVal,
         max_categories: catVal,
         converse_max_records: convRecVal,
@@ -237,6 +251,7 @@ export default function AdminClientAdminsScreen({ onToast }) {
           savedUser.max_questions_per_survey ?? body.max_questions_per_survey,
         max_surveys: savedUser.max_surveys ?? body.max_surveys,
         max_surveyors: savedUser.max_surveyors ?? body.max_surveyors,
+        max_sub_admins: savedUser.max_sub_admins ?? body.max_sub_admins,
         max_records: savedUser.max_records ?? body.max_records,
         max_categories: savedUser.max_categories ?? body.max_categories,
         converse_max_records: savedUser.converse_max_records ?? body.converse_max_records,
@@ -257,6 +272,7 @@ export default function AdminClientAdminsScreen({ onToast }) {
       setMaxQInputs((m) => ({ ...m, [id]: merged.max_questions_per_survey ?? 0 }))
       setMaxSvInputs((m) => ({ ...m, [id]: merged.max_surveys ?? 0 }))
       setMaxSrInputs((m) => ({ ...m, [id]: merged.max_surveyors ?? 0 }))
+      setMaxSubInputs((m) => ({ ...m, [id]: merged.max_sub_admins ?? 2 }))
       setMaxRecInputs((m) => ({ ...m, [id]: merged.max_records ?? 0 }))
       setMaxCatInputs((m) => ({ ...m, [id]: merged.max_categories ?? 5 }))
       setMaxConvRecInputs((m) => ({ ...m, [id]: merged.converse_max_records ?? 0 }))
@@ -826,6 +842,32 @@ export default function AdminClientAdminsScreen({ onToast }) {
                             }
                             onChange={(e) =>
                               setMaxSrInputs((m) => ({
+                                ...m,
+                                [Number(u.id)]: Math.max(0, Number(e.target.value) || 0),
+                              }))
+                            }
+                            style={{ width: 90, padding: '6px 8px' }}
+                          />
+                        </div>
+                      </label>
+                      <label className="field compact" style={{ margin: 0 }}>
+                        <span>
+                          Sub Admin seats ·{' '}
+                          <strong style={{ color: '#4f7dc6' }}>{subCounts[Number(u.id)] ?? 0}</strong> created /{' '}
+                          {Number(u.max_sub_admins ?? 2)} allocated
+                        </span>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <input
+                            type="number"
+                            min="0"
+                            max="1000"
+                            value={
+                              maxSubInputs[Number(u.id)] != null
+                                ? maxSubInputs[Number(u.id)]
+                                : (u.max_sub_admins ?? 2)
+                            }
+                            onChange={(e) =>
+                              setMaxSubInputs((m) => ({
                                 ...m,
                                 [Number(u.id)]: Math.max(0, Number(e.target.value) || 0),
                               }))

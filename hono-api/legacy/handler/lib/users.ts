@@ -26,11 +26,12 @@ export const NUM_FIELDS = [
   "max_categories",
   "converse_max_records",
   "converse_max_minutes",
+  "max_sub_admins",
 ] as const;
 
 export const USER_COLUMNS = [
   "u.id", "u.username", "u.display_name", "u.role", "u.active", "u.created_at",
-  "u.company_id", "u.company_name", "u.key_id", "u.phone",
+  "u.company_id", "u.company_name", "u.key_id", "u.phone", "u.created_by",
   ...BOOL_FIELDS.map((f) => `u.${f}`),
   ...NUM_FIELDS.map((f) => `u.${f}`),
 ].join(", ");
@@ -46,6 +47,7 @@ export type PortalUser = {
   company_name: string | null;
   key_id: string | null;
   phone: string | null;
+  created_by: number | null;
 } & Record<(typeof BOOL_FIELDS)[number], boolean> &
   Record<(typeof NUM_FIELDS)[number], number>;
 
@@ -94,7 +96,7 @@ export async function getUser(token: string | null): Promise<PortalUser | null> 
      WHERE s.token = $1
        AND s.expires_at > NOW()
        AND u.active = TRUE
-       AND u.role IN ('super_admin', 'admin', 'surveyor')
+       AND u.role IN ('super_admin', 'admin', 'surveyor', 'sub_client_admin')
      LIMIT 1`,
     [token],
   ).catch((e: unknown) => {
@@ -116,6 +118,7 @@ export async function getUser(token: string | null): Promise<PortalUser | null> 
     company_name: u.company_name ? String(u.company_name) : null,
     key_id: u.key_id || null,
     phone: u.phone || null,
+    created_by: u.created_by != null ? Number(u.created_by) : null,
   };
   for (const f of BOOL_FIELDS) me[f] = sqlBool(u[f]);
   if (u.role === "admin" || u.role === "super_admin") {
@@ -129,9 +132,27 @@ export async function getUser(token: string | null): Promise<PortalUser | null> 
   return user;
 }
 
-/** Portal roles: Client Admin + platform Super Admin (01-PRD.md §2). Super Admin has all admin powers. */
+/** Portal roles: Client Admin + platform Super Admin (01-PRD.md §2). Super Admin has all admin powers.
+ *  Sub Client Admins also use the admin portal, scoped to their parent's company. */
 export function isPortalAdmin(role: unknown): boolean {
-  return role === "admin" || role === "super_admin";
+  return role === "admin" || role === "super_admin" || role === "sub_client_admin";
+}
+
+/**
+ * Ownership anchor for tenant scoping. A Sub Client Admin operates inside the
+ * Client Admin that created it: everything they touch belongs to the parent
+ * (users they create get created_by = parent), so ownership predicates resolve
+ * to the parent id. Sub admins also own nothing directly except their own row.
+ */
+export function effectiveAdminId(me: PortalUser | null | undefined): number | null {
+  if (!me) return null;
+  if (me.role === "sub_client_admin") return me.created_by ?? null;
+  return typeof me.id === "number" ? me.id : Number(me.id) || null;
+}
+
+/** True for Client Admin + Sub Client Admin (delegated admin side). */
+export function isClientSideAdmin(role: unknown): boolean {
+  return role === "admin" || role === "sub_client_admin";
 }
 
 /** Coerce Postgres/JSON boolean-ish values (true | 't' | 'true' | 1). */

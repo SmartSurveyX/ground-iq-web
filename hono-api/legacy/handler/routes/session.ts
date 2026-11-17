@@ -13,6 +13,7 @@ import {
   countTenantRecords,
 } from "../lib/tenant.ts";
 import {
+  effectiveAdminId,
   invalidateSessionCache,
   sqlCountN,
 } from "../lib/users.ts";
@@ -52,16 +53,18 @@ export async function handleSession(c: Ctx): Promise<Response | null> {
           }
         : {}),
     };
-    // Client Admin: attach live usage vs Super-Admin-set caps so Overview "My allocation" works
+    // Client Admin / Sub Client Admin: attach live usage vs Super-Admin-set caps so Overview "My allocation" works
     // without relying only on GET /api/users (which can be filtered / slow).
-    if (me.role === "admin" && sql) {
+    // Sub admins resolve counts through their parent (effectiveAdminId).
+    if ((me.role === "admin" || me.role === "sub_client_admin") && sql) {
+      const anchor = effectiveAdminId(me) ?? Number(me.id);
       const meCompany = String((me as { company_name?: unknown }).company_name || "").trim();
-      const [sCnt] = await sql`SELECT COUNT(*)::int AS n FROM survey_form WHERE created_by = ${me.id}`.catch(() => [{ n: 0 }]);
-      const [srCnt] = await sql`SELECT COUNT(*)::int AS n FROM app_users WHERE role = 'surveyor' AND created_by = ${me.id}`.catch(() => [{ n: 0 }]);
+      const [sCnt] = await sql`SELECT COUNT(*)::int AS n FROM survey_form WHERE created_by = ${anchor}`.catch(() => [{ n: 0 }]);
+      const [srCnt] = await sql`SELECT COUNT(*)::int AS n FROM app_users WHERE role = 'surveyor' AND created_by = ${anchor}`.catch(() => [{ n: 0 }]);
       // Peak Q across owned + shared + company projects (not only created_by)
-      const questionPeak = await peakQuestionsForAdmin(sql, Number(me.id), meCompany);
-      const recUsed = await countTenantRecords(sql, Number(me.id));
-      const snap = await allocationSnapshot(sql, Number(me.id));
+      const questionPeak = await peakQuestionsForAdmin(sql, anchor, meCompany);
+      const recUsed = await countTenantRecords(sql, anchor);
+      const snap = await allocationSnapshot(sql, anchor);
       const webReserved = snap.web_reserved;
       const teamRows = await sql`
           SELECT f.id AS sid, f.title,
@@ -73,9 +76,9 @@ export async function handleSession(c: Ctx): Promise<Response | null> {
                    FILTER (WHERE u.id IS NOT NULL), '[]'::jsonb) AS surveyors
           FROM survey_form f
           LEFT JOIN survey_assignments a ON a.survey_id = f.id
-          LEFT JOIN app_users u ON u.id = a.user_id AND u.created_by = ${me.id} AND u.role = 'surveyor'
-          WHERE f.created_by = ${me.id}
-             OR f.id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id = ${me.id})
+          LEFT JOIN app_users u ON u.id = a.user_id AND u.created_by = ${anchor} AND u.role = 'surveyor'
+          WHERE f.created_by = ${anchor}
+             OR f.id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id = ${anchor})
           GROUP BY f.id, f.title, f.questions ORDER BY f.title
         `.catch(() => []);
       const survey_team = (teamRows as { sid: number; title: string; qn?: number; surveyors: unknown }[]).map((t) => ({
@@ -90,7 +93,7 @@ export async function handleSession(c: Ctx): Promise<Response | null> {
       const granted = await sql`
           SELECT f.id, f.title
           FROM survey_admin_access saa JOIN survey_form f ON f.id = saa.survey_id
-          WHERE saa.admin_id = ${me.id} ORDER BY f.title
+          WHERE saa.admin_id = ${anchor} ORDER BY f.title
         `.catch(() => []);
       return json({
         user: {

@@ -321,9 +321,11 @@ export async function handleProgress(c: Ctx): Promise<Response | null> {
     const target = Math.max(0, Math.min(Number(body.target) || 0, 100000));
     if (body.user_id) {
       if (me.role !== "super_admin") {
+        // Sub admins resolve through their parent: team surveyors carry created_by = parent
+        const anchor = me.role === "sub_client_admin" ? Number(me.created_by || me.id) : Number(me.id);
         const own = await sql`
             SELECT id FROM app_users
-            WHERE id = ${Number(body.user_id)} AND created_by = ${me.id} AND role IN ('surveyor', 'field')
+            WHERE id = ${Number(body.user_id)} AND created_by = ${anchor} AND role IN ('surveyor', 'field')
             LIMIT 1
           `.catch(() => []);
         if (!own.length) return json({ error: "Not your surveyor" }, 403);
@@ -339,9 +341,10 @@ export async function handleProgress(c: Ctx): Promise<Response | null> {
             UPDATE app_users SET target_quota = ${target} WHERE role = 'surveyor'
           `;
       } else {
+        const anchor = me.role === "sub_client_admin" ? Number(me.created_by || me.id) : Number(me.id);
         await sql`
             UPDATE app_users SET target_quota = ${target}
-            WHERE role = 'surveyor' AND created_by = ${me.id}
+            WHERE role = 'surveyor' AND created_by = ${anchor}
           `;
       }
       return json({ ok: true, all_surveyors: true, target });

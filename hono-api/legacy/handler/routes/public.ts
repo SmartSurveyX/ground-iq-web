@@ -268,6 +268,7 @@ export async function handlePublic(c: Ctx): Promise<Response | null> {
     const rows = await sql`
         SELECT id, username, display_name, role, active, created_at, password_hash,
                company_id, company_name, key_id, phone,
+               COALESCE(created_by, 0) AS created_by,
                COALESCE(verified, FALSE) AS verified,
                COALESCE(can_manage_questions, FALSE) AS can_manage_questions,
                COALESCE(can_edit_surveys, FALSE) AS can_edit_surveys,
@@ -285,7 +286,8 @@ export async function handlePublic(c: Ctx): Promise<Response | null> {
                COALESCE(max_surveys, 0) AS max_surveys,
                COALESCE(max_surveyors, 0) AS max_surveyors,
                COALESCE(max_records, 0) AS max_records,
-               COALESCE(max_categories, 5) AS max_categories
+               COALESCE(max_categories, 5) AS max_categories,
+               COALESCE(max_sub_admins, 2) AS max_sub_admins
         FROM app_users WHERE LOWER(username) = ${username} LIMIT 1
       `.catch(async () =>
       await sql`
@@ -313,8 +315,8 @@ export async function handlePublic(c: Ctx): Promise<Response | null> {
           : "Account is disabled. Ask the Super Admin to re-enable it.",
       }, 401);
     }
-    // Only admin/super_admin (portal) or surveyor (field app). No public signup / legacy field/user.
-    if (user.role !== "super_admin" && user.role !== "admin" && user.role !== "surveyor") {
+    // Only admin/super_admin/sub_client_admin (portal) or surveyor (field app). No public signup / legacy field/user.
+    if (user.role !== "super_admin" && user.role !== "admin" && user.role !== "surveyor" && user.role !== "sub_client_admin") {
       return json({
         error:
           "Account not allowed. Ask Client Admin to create a surveyor login for the field app.",
@@ -331,9 +333,9 @@ export async function handlePublic(c: Ctx): Promise<Response | null> {
         }, 403);
       }
     }
-    // Portal must send expected_role=admin
+    // Portal must send expected_role=admin (Client Admin, Sub Client Admin, Super Admin)
     if (expectedRole === "admin") {
-      if (user.role !== "admin" && user.role !== "super_admin") {
+      if (user.role !== "admin" && user.role !== "super_admin" && user.role !== "sub_client_admin") {
         return json({
           error:
             "Client Admin portal only. Surveyors sign in on the field app with their app login.",
@@ -415,6 +417,7 @@ export async function handlePublic(c: Ctx): Promise<Response | null> {
         company_name: uu.company_name ? String(uu.company_name) : null,
         key_id: uu.key_id || null,
         phone: uu.phone || null,
+        created_by: Number(uu.created_by) || null,
         verified: sqlBool(uu.verified),
         can_manage_questions: sqlBool(uu.can_manage_questions),
         can_edit_surveys: sqlBool(uu.can_edit_surveys),
@@ -432,6 +435,7 @@ export async function handlePublic(c: Ctx): Promise<Response | null> {
         max_surveyors: Number(uu.max_surveyors) || 0,
         max_records: Number(uu.max_records) || 0,
         max_categories: Number(uu.max_categories) || 0,
+        max_sub_admins: Number(uu.max_sub_admins) || 2,
       },
       expires_at: expires.toISOString(),
       access:

@@ -49,6 +49,7 @@ const AdminWebSurveyScreen = lazy(() => import('./AdminWebSurvey'))
 const AdminProfileScreen = lazy(() => import('./AdminProfile'))
 const AdminContactRequestsScreen = lazy(() => import('./AdminContactRequests'))
 const AdminErrorsScreen = lazy(() => import('./AdminErrors'))
+const AdminSubAdminsScreen = lazy(() => import('./AdminSubAdmins'))
 
 // Matches the sidebar: each group’s `pages` become the subtabs on that screen.
 const NAV = [
@@ -56,6 +57,7 @@ const NAV = [
   { id: 'analyze', label: 'Analyze & Export', icon: 'chart', pages: ['analyze', 'charts', 'report', 'conversations', 'upload', 'data'] },
   { id: 'review', label: 'Review QA', icon: 'check', pages: ['review'] },
   { id: 'surveyors', label: 'Surveyors', icon: 'user', pages: ['users'] },
+  { id: 'subadmins', label: 'Sub Admins', icon: 'shield', pages: ['subadmins'] },
   { id: 'surveys', label: 'Surveys & Forms', icon: 'clipboard', pages: ['surveys', 'questions', 'web', 'bank'] },
   { id: 'profile', label: 'Organization', icon: 'building', pages: ['profile'] },
 ]
@@ -101,6 +103,7 @@ const PAGE_LABELS = {
   charts: 'Excel Charts',
   report: 'Live Feed',
   users: 'Surveyors',
+  subadmins: 'Sub Admins',
   surveys: 'Surveys',
   questions: 'Questions',
   review: 'Review',
@@ -1154,7 +1157,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
 
   const canPage = useCallback(
     (p) => {
-      if (isSuper) return true
+      if (isSuper) return p !== 'subadmins' // Super manages sub-admin seats via Client Admins
       if (['companies', 'admins', 'seats', 'audit'].includes(p)) return false
       const need = PAGE_POWER[p]
       if (!need) return true
@@ -1354,7 +1357,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
         const data = await me()
         const okRole = superAdminOnly
           ? data.user?.role === 'super_admin'
-          : data.user?.role === 'admin' || data.user?.role === 'super_admin'
+          : data.user?.role === 'admin' || data.user?.role === 'super_admin' || data.user?.role === 'sub_client_admin'
         if (!okRole) {
           await logout()
           if (!cancelled) {
@@ -1565,7 +1568,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
       <aside className="portal-sidebar" aria-label="Main navigation">
         <div className="side-brand">
           <img className="side-brand-logo" src={logoMark} alt="" /> Smart Survey X
-          <span className="role-tag">{isSuper ? 'Super Admin' : 'Client Admin'}</span>
+          <span className="role-tag">{isSuper ? 'Super Admin' : user?.role === 'sub_client_admin' ? 'Sub Admin' : 'Client Admin'}</span>
         </div>
         <nav className="portal-nav">
           <div className="side-section-label">MONITORING</div>
@@ -1575,6 +1578,9 @@ export default function AdminPortal({ superAdminOnly = false }) {
 
           <div className="side-section-label" style={{ marginTop: 14 }}>SETUP &amp; TEAM</div>
           <button className={`side-sub ${page === 'users' ? 'active' : ''}`} onClick={() => goPage('users')}><Icon name="users" size={18} />Surveyors &amp; Quotas</button>
+          {!isSuper && (
+            <button className={`side-sub ${page === 'subadmins' ? 'active' : ''}`} onClick={() => goPage('subadmins')}><Icon name="shield" size={18} />Sub Admins</button>
+          )}
           <button className={`side-sub ${['surveys', 'questions', 'bank'].includes(page) ? 'active' : ''}`} onClick={() => goPage('surveys')}><Icon name="clipboard" size={18} />Surveys &amp; Forms</button>
           {(isSuper || canPage('web')) && (
             <button className={`side-sub ${page === 'web' ? 'active' : ''}`} onClick={() => goPage('web')}><Icon name="globe" size={18} />Web survey</button>
@@ -1740,6 +1746,9 @@ export default function AdminPortal({ superAdminOnly = false }) {
           {page === 'seats' && canPage('seats') && <AdminSeatsScreen onToast={notify} />}
           {page === 'admins' && canPage('admins') && (
             <AdminClientAdminsScreen onToast={notify} />
+          )}
+          {page === 'subadmins' && canPage('subadmins') && (
+            <AdminSubAdminsScreen onToast={notify} />
           )}
           {page === 'contact' && canPage('contact') && (
             <AdminContactRequestsScreen onToast={notify} />

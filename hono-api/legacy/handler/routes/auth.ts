@@ -405,7 +405,8 @@ export async function handleAuth(c: Ctx): Promise<Response | null> {
       if (
         expectedRole === "admin" &&
         user.role !== "admin" &&
-        user.role !== "super_admin"
+        user.role !== "super_admin" &&
+        user.role !== "sub_client_admin"
       ) {
         return json({ error: "Client Admin portal only." }, 403);
       }

@@ -76,14 +76,19 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
       });
       assignedMap.set(Number(a.user_id), arr);
     }
-    // BR-004 tenant scoping: a Client Admin only sees themselves + surveyors they
-    // created (created_by = me.id). Super Admin sees every account. This stops
-    // survey names/surveyors from being mixed across client admins.
+    // BR-004 tenant scoping: a Client Admin only sees themselves + accounts they
+    // created (created_by = me.id). A Sub Client Admin sees themselves + the
+    // parent team's surveyors (never other sub admins or the parent account).
+    // Super Admin sees every account. This stops survey names/surveyors from
+    // being mixed across client admins.
     // NOTE: two explicit queries — the Deno-deployed neon driver rejects nested
     // composed ${...} sql fragments with 'syntax error at or near $1'.
+    const subScoped = me.role === "sub_client_admin";
+    const scopeOwnerId = subScoped ? Number(me.created_by || me.id) : Number(me.id);
     const rows = me.role === "super_admin"
       ? await sql`
             SELECT id, username, display_name, company_name, role, active, created_at,
+                   COALESCE(created_by, 0) AS created_by,
                    COALESCE(target_quota, 0) AS target_quota,
                    key_id, phone, photo, aadhaar_front, aadhaar_back,
                    COALESCE(verified, FALSE) AS verified,
@@ -105,6 +110,7 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
                    COALESCE(max_surveyors, 0) AS max_surveyors,
                    COALESCE(max_records, 0) AS max_records,
                    COALESCE(max_categories, 5) AS max_categories,
+                   COALESCE(max_sub_admins, 2) AS max_sub_admins,
                    COALESCE(converse_max_records, 0) AS converse_max_records,
                    COALESCE(converse_max_minutes, 0) AS converse_max_minutes,
                    (SELECT COUNT(*)::int FROM conversations c
@@ -127,6 +133,7 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
         )
       : await sql`
             SELECT id, username, display_name, company_name, role, active, created_at,
+                   COALESCE(created_by, 0) AS created_by,
                    COALESCE(target_quota, 0) AS target_quota,
                    key_id, phone, photo, aadhaar_front, aadhaar_back,
                    COALESCE(verified, FALSE) AS verified,
@@ -148,6 +155,7 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
                    COALESCE(max_surveyors, 0) AS max_surveyors,
                    COALESCE(max_records, 0) AS max_records,
                    COALESCE(max_categories, 5) AS max_categories,
+                   COALESCE(max_sub_admins, 2) AS max_sub_admins,
                    COALESCE(converse_max_records, 0) AS converse_max_records,
                    COALESCE(converse_max_minutes, 0) AS converse_max_minutes,
                    (SELECT COUNT(*)::int FROM conversations c
@@ -156,7 +164,7 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
                        OR (su.company_id IS NOT NULL AND su.company_id = app_users.company_id))
                    ) AS converse_used
             FROM app_users
-            WHERE (id = ${me.id} OR created_by = ${me.id})
+            WHERE (id = ${me.id} OR (created_by = ${scopeOwnerId} AND (${subScoped ? 0 : 1} = 1 OR role = 'surveyor')))
             ORDER BY id
           `.catch(async () =>
           await sql`
@@ -165,9 +173,9 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
                      FALSE AS can_review_data, FALSE AS can_verify_surveyors,
                      FALSE AS can_assign_surveyors,
                      FALSE AS can_crud_questionnaire, FALSE AS can_validate_proof, FALSE AS can_web_survey, FALSE AS can_record_voice, FALSE AS can_translate_telugu, FALSE AS can_converse, FALSE AS can_excel_charts,
-                     0 AS max_questions_per_survey, 0 AS max_surveys, 0 AS max_surveyors, 0 AS max_records, 5 AS max_categories, 0 AS converse_max_records, 0 AS converse_max_minutes, 0 AS converse_used
+                     0 AS max_questions_per_survey, 0 AS max_surveys, 0 AS max_surveyors, 0 AS max_records, 5 AS max_categories, 2 AS max_sub_admins, 0 AS converse_max_records, 0 AS converse_max_minutes, 0 AS converse_used
               FROM app_users
-              WHERE (id = ${me.id} OR created_by = ${me.id})
+              WHERE (id = ${me.id} OR (created_by = ${scopeOwnerId} AND (${subScoped ? 0 : 1} = 1 OR role = 'surveyor')))
               ORDER BY id
             `
         );
@@ -320,11 +328,35 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
     const name = String(body.name || username).trim();
     const phone = String(body.phone || "").trim();
     const target_quota = Math.max(0, Math.min(Number(body.target_quota) || 0, 100000));
-    // surveyor = field collector (can login field app); admin = portal only
-    const role = body.role === "admin" ? "admin" : "surveyor";
+    // surveyor = field collector (can login field app); admin = portal only;
+    // sub_client_admin = delegated portal admin under the creating Client Admin
+    const role = body.role === "admin"
+      ? "admin"
+      : body.role === "sub_client_admin"
+      ? "sub_client_admin"
+      : "surveyor";
     let companyName = role === "admin" ? String(body.company_name || "").trim().slice(0, 160) : "";
     if (role === "admin" && !companyName) {
       companyName = `${name || username} Organisation`;
+    }
+    // Sub Client Admins may only be created by a Client Admin (or Super Admin on
+    // their behalf) — never by another sub admin.
+    if (role === "sub_client_admin" && me.role === "sub_client_admin") {
+      return json({ error: "Sub Client Admins cannot create other Sub Client Admins." }, 403);
+    }
+    // Ownership parent: sub admins belong to the creating Client Admin — everything
+    // they later create carries created_by = parent, so the parent sees it all.
+    // Super Admin may place a sub admin under a specific Client Admin via parent_id.
+    let createdBy = Number(me.id);
+    if (me.role === "sub_client_admin") {
+      createdBy = Number(me.created_by || me.id);
+    } else if (me.role === "super_admin" && role === "sub_client_admin" && body.parent_id) {
+      const pid = Number(body.parent_id);
+      const [p] = await sql`
+          SELECT id FROM app_users WHERE id = ${pid} AND role = 'admin' AND active = TRUE LIMIT 1
+        `.catch(() => []);
+      if (!p) return json({ error: "parent_id must be an active Client Admin account" }, 400);
+      createdBy = pid;
     }
     if (!username || !password) {
       return json({ error: "username and password required" }, 400);
@@ -345,32 +377,61 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
         }, 403);
       }
     }
+    // Sub Client Admin seats: every Client Admin gets a default of 2 (Super Admin
+    // raises it via max_sub_admins). 0 = unlimited. Super Admin is not bound.
+    if (role === "sub_client_admin" && me.role !== "super_admin") {
+      const cap = Number((me as unknown as Record<string, unknown>).max_sub_admins) || 0;
+      if (cap > 0) {
+        const [sc] = await sql`
+            SELECT COUNT(*)::int AS n FROM app_users
+            WHERE role = 'sub_client_admin' AND active = TRUE AND created_by = ${createdBy}
+          `.catch(() => [{ n: 0 }]);
+        if (sqlCountN(sc) >= cap) {
+          return json({
+            error: `Sub Client Admin limit reached — max ${cap} (default 2; Super Admin can raise it).`,
+          }, 422);
+        }
+      }
+    }
     // Ensure role check allows surveyor
     await sql`ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_role_check`.catch(() => null);
     await sql`
         ALTER TABLE app_users
         ADD CONSTRAINT app_users_role_check
-        CHECK (role IN ('super_admin', 'admin', 'field', 'user', 'surveyor'))
+        CHECK (role IN ('super_admin', 'admin', 'field', 'user', 'surveyor', 'sub_client_admin'))
       `.catch(() => null);
     await sql`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS target_quota INTEGER NOT NULL DEFAULT 0`
       .catch(() => null);
     try {
       const password_hash = await hashPasswordAsync(password);
       const key_id = await uniqueUserKeyId();
-      // Grant-based powers can be set at admin creation by the Super Admin (least privilege)
+      // Grant-based powers at creation:
+      // - admin target: Super Admin only (least privilege, existing behavior)
+      // - sub_client_admin target: defaults to the creator's own powers; explicit
+      //   values are clamped to what the creator holds (a Client Admin cannot
+      //   grant a power they do not have themselves).
       const canSuper = role === "admin" && me.role === "super_admin";
-      const canManageQuestions = canSuper && body.can_manage_questions === true;
-      const canEditSurveys = canSuper && body.can_edit_surveys === true;
-      const canReviewData = canSuper && body.can_review_data === true;
-      const canVerifySurveyors = canSuper && body.can_verify_surveyors === true;
-      const canAssignSurveyors = canSuper && body.can_assign_surveyors === true;
-      const canCrudQuestionnaire = canSuper && body.can_crud_questionnaire === true;
-      const canValidateProof = canSuper && body.can_validate_proof === true;
-      const canWebSurvey = canSuper && body.can_web_survey === true;
-      const canRecordVoice = canSuper && body.can_record_voice === true;
-      const canTranslateTeluguGrant = canSuper && body.can_translate_telugu === true;
-      const canConverse = canSuper && (body.can_converse === true || body.can_record_voice === true);
-      const canExcelCharts = canSuper && body.can_excel_charts === true;
+      const isSuperCreator = me.role === "super_admin";
+      const meRec = me as unknown as Record<string, unknown>;
+      const subPower = (key: string): boolean => {
+        const creatorVal = sqlBool(meRec[key]);
+        const wanted = body[key] === undefined ? creatorVal : body[key] === true;
+        return isSuperCreator ? wanted : wanted && creatorVal;
+      };
+      const canManageQuestions = canSuper ? body.can_manage_questions === true : subPower("can_manage_questions");
+      const canEditSurveys = canSuper ? body.can_edit_surveys === true : subPower("can_edit_surveys");
+      const canReviewData = canSuper ? body.can_review_data === true : subPower("can_review_data");
+      const canVerifySurveyors = canSuper ? body.can_verify_surveyors === true : subPower("can_verify_surveyors");
+      const canAssignSurveyors = canSuper ? body.can_assign_surveyors === true : subPower("can_assign_surveyors");
+      const canCrudQuestionnaire = canSuper ? body.can_crud_questionnaire === true : subPower("can_crud_questionnaire");
+      const canValidateProof = canSuper ? body.can_validate_proof === true : subPower("can_validate_proof");
+      const canWebSurvey = canSuper ? body.can_web_survey === true : subPower("can_web_survey");
+      const canRecordVoice = canSuper ? body.can_record_voice === true : subPower("can_record_voice");
+      const canTranslateTeluguGrant = canSuper ? body.can_translate_telugu === true : subPower("can_translate_telugu");
+      const canConverse = canSuper
+        ? (body.can_converse === true || body.can_record_voice === true)
+        : (subPower("can_converse") || subPower("can_record_voice"));
+      const canExcelCharts = canSuper ? body.can_excel_charts === true : subPower("can_excel_charts");
       // A brand-new Client Admin starts with a usable allowance — 50 questions and
       // 500 field records — instead of 0 (which means unlimited). An explicit value
       // in the request always wins, including 0 for unlimited.
@@ -401,12 +462,22 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
     const converseMaxMinutesCreate = canSuper
       ? clampUserLimit(body.converse_max_minutes, 0, 180)
       : 0;
-    // Surveyor cap: a Client Admin may only create surveyors up to the Super-Admin-set
-    // max_surveyors (0 = unlimited). Ownership is tracked via created_by.
+    // Surveyor cap: a Client Admin / Sub Client Admin may only create surveyors up to
+    // the Super-Admin-set max_surveyors (0 = unlimited). Sub admins are measured
+    // against the PARENT admin's cap, because everything they create is owned by
+    // the parent (created_by = parent).
     if (role === "surveyor" && me.role !== "super_admin") {
-      const cap = Number((me as Record<string, unknown>).max_surveyors) || 0;
+      if (me.role === "sub_client_admin" && !hasPower(me, "can_assign_surveyors")) {
+        return json({ error: "Not allowed — this account does not have the assign-surveyors permission." }, 403);
+      }
+      const isSub = me.role === "sub_client_admin";
+      const capOwner = isSub ? Number(me.created_by || me.id) : Number(me.id);
+      const capRow: Record<string, unknown> = isSub
+        ? ((await sql`SELECT COALESCE(max_surveyors, 0) AS max_surveyors FROM app_users WHERE id = ${capOwner} LIMIT 1`.catch(() => [{ max_surveyors: 0 }]))[0] as Record<string, unknown>) || { max_surveyors: 0 }
+        : (me as unknown as Record<string, unknown>);
+      const cap = Number(capRow.max_surveyors) || 0;
       if (cap > 0) {
-        const [sc] = await sql`SELECT COUNT(*)::int AS n FROM app_users WHERE role = 'surveyor' AND created_by = ${me.id}`.catch(() => [{ n: 0 }]);
+        const [sc] = await sql`SELECT COUNT(*)::int AS n FROM app_users WHERE role = 'surveyor' AND created_by = ${capOwner}`.catch(() => [{ n: 0 }]);
         const surveyorCount = sqlCountN(sc);
         if (surveyorCount >= cap) {
           return json({
@@ -417,7 +488,21 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
     }
       let finalCompanyName = companyName || null;
       let companyId: number | null = null;
-      if (role === "admin" && finalCompanyName && sql) {
+      if (role === "sub_client_admin") {
+        // Inherit the parent Client Admin's company so company-wide scoping applies
+        const [pRow] = await sql`
+            SELECT company_name, company_id FROM app_users WHERE id = ${createdBy} LIMIT 1
+          `.catch(() => []);
+        finalCompanyName = String((pRow as { company_name?: unknown } | undefined)?.company_name || "") || null;
+        companyId = Number((pRow as { company_id?: unknown } | undefined)?.company_id) || null;
+        if (finalCompanyName && !companyId && sql) {
+          const comp = await ensureCompanyExists(sql, finalCompanyName, createdBy);
+          if (comp) {
+            companyId = comp.id;
+            finalCompanyName = comp.name;
+          }
+        }
+      } else if (role === "admin" && finalCompanyName && sql) {
         const comp = await ensureCompanyExists(sql, finalCompanyName, me.id);
         if (comp) {
           companyId = comp.id;
@@ -426,7 +511,7 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
       }
       const inserted = await sql`
           INSERT INTO app_users (username, password_hash, display_name, company_name, company_id, role, target_quota, active, key_id, phone, can_manage_questions, can_edit_surveys, can_review_data, can_verify_surveyors, can_assign_surveyors, can_crud_questionnaire, can_validate_proof, can_web_survey, can_record_voice, can_translate_telugu, can_converse, can_excel_charts, max_questions_per_survey, max_surveys, max_surveyors, max_records, max_categories, converse_max_records, converse_max_minutes, created_by)
-          VALUES (${username}, ${password_hash}, ${name}, ${finalCompanyName}, ${companyId}, ${role}, ${target_quota}, TRUE, ${key_id}, ${phone || null}, ${canManageQuestions}, ${canEditSurveys}, ${canReviewData}, ${canVerifySurveyors}, ${canAssignSurveyors}, ${canCrudQuestionnaire}, ${canValidateProof}, ${canWebSurvey}, ${canRecordVoice}, ${canTranslateTeluguGrant}, ${canConverse}, ${canExcelCharts}, ${maxQuestionsPerSurvey}, ${maxSurveysCreate}, ${maxSurveyorsCreate}, ${maxRecordsCreate}, ${maxCategoriesCreate}, ${converseMaxRecordsCreate}, ${converseMaxMinutesCreate}, ${me.id})
+          VALUES (${username}, ${password_hash}, ${name}, ${finalCompanyName}, ${companyId}, ${role}, ${target_quota}, TRUE, ${key_id}, ${phone || null}, ${canManageQuestions}, ${canEditSurveys}, ${canReviewData}, ${canVerifySurveyors}, ${canAssignSurveyors}, ${canCrudQuestionnaire}, ${canValidateProof}, ${canWebSurvey}, ${canRecordVoice}, ${canTranslateTeluguGrant}, ${canConverse}, ${canExcelCharts}, ${maxQuestionsPerSurvey}, ${maxSurveysCreate}, ${maxSurveyorsCreate}, ${maxRecordsCreate}, ${maxCategoriesCreate}, ${converseMaxRecordsCreate}, ${converseMaxMinutesCreate}, ${createdBy})
           RETURNING id, username, display_name, company_name, company_id, role, active, created_at, target_quota, key_id, phone, can_manage_questions, can_edit_surveys, can_review_data, can_verify_surveyors, can_assign_surveyors, can_crud_questionnaire, can_validate_proof, can_web_survey, can_record_voice, can_translate_telugu, can_converse, can_excel_charts, max_questions_per_survey, max_surveys, max_surveyors, max_records, max_categories, converse_max_records, converse_max_minutes
         `;
       const u = inserted[0] as Record<string, unknown>;
@@ -501,13 +586,23 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
     const body = await readBody(req);
     let count = Math.min(Math.max(Number(body.count) || 1, 1), 100);
     const prefix = String(body.prefix || "s").trim().toLowerCase().replace(/[^a-z0-9_]/g, "") || "s";
-    // Surveyor cap: a Client Admin may only create surveyors up to the Super-Admin-set
-    // max_surveyors (0 = unlimited). Clamp the requested batch to the remaining allowance.
+    // Surveyor cap: a Client Admin / Sub Client Admin may only create surveyors up to
+    // the Super-Admin-set max_surveyors (0 = unlimited). Sub admins are measured
+    // against the PARENT admin's cap (their creations carry created_by = parent).
+    // Sub admins additionally need the assign-surveyors power.
     let bulkRemaining = -1; // -1 = no cap
     if (me.role !== "super_admin") {
-      const cap = Number((me as Record<string, unknown>).max_surveyors) || 0;
+      if (me.role === "sub_client_admin" && !hasPower(me, "can_assign_surveyors")) {
+        return json({ error: "Not allowed — this account does not have the assign-surveyors permission." }, 403);
+      }
+      const isSub = me.role === "sub_client_admin";
+      const capOwner = isSub ? Number(me.created_by || me.id) : Number(me.id);
+      const capRow: Record<string, unknown> = isSub
+        ? ((await sql`SELECT COALESCE(max_surveyors, 0) AS max_surveyors FROM app_users WHERE id = ${capOwner} LIMIT 1`.catch(() => [{ max_surveyors: 0 }]))[0] as Record<string, unknown>) || { max_surveyors: 0 }
+        : (me as unknown as Record<string, unknown>);
+      const cap = Number(capRow.max_surveyors) || 0;
       if (cap > 0) {
-        const [sc] = await sql`SELECT COUNT(*)::int AS n FROM app_users WHERE role = 'surveyor' AND created_by = ${me.id}`.catch(() => [{ n: 0 }]);
+        const [sc] = await sql`SELECT COUNT(*)::int AS n FROM app_users WHERE role = 'surveyor' AND created_by = ${capOwner}`.catch(() => [{ n: 0 }]);
         const surveyorCount = sqlCountN(sc);
         const remaining = Math.max(0, cap - surveyorCount);
         if (remaining <= 0) {
@@ -546,12 +641,14 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
     await sql`
         ALTER TABLE app_users
         ADD CONSTRAINT app_users_role_check
-        CHECK (role IN ('super_admin', 'admin', 'field', 'user', 'surveyor'))
+        CHECK (role IN ('super_admin', 'admin', 'field', 'user', 'surveyor', 'sub_client_admin'))
       `.catch(() => null);
     await sql`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS target_quota INTEGER NOT NULL DEFAULT 0`
       .catch(() => null);
 
     const password_hash = await hashPasswordAsync(password);
+    // Sub admins create on behalf of the parent — ownership stays with the Client Admin
+    const bulkCreatedBy = me.role === "sub_client_admin" ? Number(me.created_by || me.id) : Number(me.id);
     const errors: string[] = [];
     for (const username of names) {
       const displayName = `Surveyor ${username}`;
@@ -559,15 +656,16 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
         const key_id = await uniqueUserKeyId();
         const ins = await sql`
             INSERT INTO app_users (username, password_hash, display_name, role, target_quota, active, key_id, created_by)
-            VALUES (${username}, ${password_hash}, ${displayName}, ${"surveyor"}, ${target_quota}, TRUE, ${key_id}, ${me.id})
+            VALUES (${username}, ${password_hash}, ${displayName}, ${"surveyor"}, ${target_quota}, TRUE, ${key_id}, ${bulkCreatedBy})
             RETURNING id
           `;
         const newId = Number((ins[0] as { id?: number } | undefined)?.id);
         // Auto-attach bulk-created surveyors to every survey this admin owns
-        if (Number.isFinite(newId) && me.role === "admin") {
+        if (Number.isFinite(newId) && (me.role === "admin" || me.role === "sub_client_admin")) {
+          const anchorForSurveys = me.role === "sub_client_admin" ? Number(me.created_by || me.id) : Number(me.id);
           const mySurveys = await sql`
               SELECT id FROM survey_form
-              WHERE created_by = ${me.id}
+              WHERE created_by = ${anchorForSurveys}
                 AND form_key NOT IN ('default', 'legacy')
             `.catch(() => []);
           for (const s of mySurveys as { id: number }[]) {
@@ -613,19 +711,32 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
     if (!targetId || !Number.isFinite(targetId)) return json({ error: "Invalid user id" }, 400);
     const body = await readBody(req);
 
-    if (me.role !== "admin" && me.id !== targetId) {
+    if (!isPortalAdmin(me.role) && me.id !== targetId) {
       return json({ error: "Forbidden — can only edit own profile media" }, 403);
     }
 
     const existing = await sql`
-        SELECT id, username, display_name, photo, aadhaar_front, aadhaar_back, verified
+        SELECT id, username, display_name, photo, aadhaar_front, aadhaar_back, verified, created_by, role
         FROM app_users WHERE id = ${targetId}
       `;
     if (!existing.length) return json({ error: "User not found" }, 404);
 
+    // Tenant guard for portal admins: Sub Client Admins may only touch team surveyor
+    // media (never other sub admins / the parent account); Client Admins their own team.
+    const mediaTarget = existing[0] as Record<string, unknown>;
+    if (isPortalAdmin(me.role) && me.role !== "super_admin" && me.id !== targetId) {
+      const anchor = me.role === "sub_client_admin"
+        ? Number(me.created_by || me.id)
+        : Number(me.id);
+      if (Number(mediaTarget.created_by) !== anchor ||
+          (me.role === "sub_client_admin" && String(mediaTarget.role) !== "surveyor")) {
+        return json({ error: "Forbidden — that account belongs to another Client Admin" }, 403);
+      }
+    }
+
     // Lock uploads for verified surveyors — only admin can change
     const exUser = existing[0] as Record<string, unknown>;
-    if (exUser.verified === true && me.role !== "admin") {
+    if (exUser.verified === true && !isPortalAdmin(me.role)) {
       return json({
         error: "Profile media is locked after Admin Verification. Only Admin can update photo or Aadhaar documents.",
       }, 403);
@@ -727,11 +838,21 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
       return json({ error: "Forbidden — can only update own profile" }, 403);
     }
 
-    // BR-004 tenant scoping: a Client Admin may only manage surveyors they
-    // created (created_by = me.id). Super Admin manages every account.
+    // BR-004 tenant scoping: a Client Admin may only manage accounts they created
+    // (created_by = me.id — including their Sub Client Admins, whose created_by is
+    // the admin). A Sub Client Admin manages the parent team's surveyors, but never
+    // other sub admins or the parent's own account. Super Admin manages everything.
+    const patchAnchor = me.role === "sub_client_admin"
+      ? Number(me.created_by || me.id)
+      : Number(me.id);
     if (isAdmin && me.role !== "super_admin" && !isSelf &&
-        Number(ex.created_by) !== me.id) {
+        Number(ex.created_by) !== patchAnchor) {
       return json({ error: "Forbidden — that account belongs to another Client Admin" }, 403);
+    }
+    // A Sub Client Admin can never manage admin-side accounts (parent, other subs)
+    if (me.role === "sub_client_admin" && !isSelf &&
+        String(ex.role) !== "surveyor" && String(ex.role) !== "field") {
+      return json({ error: "Forbidden — sub admins can only manage surveyor accounts" }, 403);
     }
 
     // Freeze phone, photo and Aadhaar edits for surveyors once verified by Admin
@@ -861,6 +982,11 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
       body.max_categories !== undefined && me.role === "super_admin"
         ? Math.max(0, Math.min(Number(body.max_categories) || 0, 1000))
         : Number((ex as Record<string, unknown>).max_categories ?? 5);
+    // Sub Client Admin seats for this admin — Super Admin only. 0 = unlimited.
+    const nextMaxSubAdmins =
+      body.max_sub_admins !== undefined && me.role === "super_admin"
+        ? Math.max(0, Math.min(Number(body.max_sub_admins) || 0, 1000))
+        : Number((ex as Record<string, unknown>).max_sub_admins ?? 2);
     // Converse limits — Super Admin only. 0 records = unlimited; 0 minutes = server default (10).
     const nextConverseMaxRecords =
       body.converse_max_records !== undefined && me.role === "super_admin"
@@ -870,7 +996,9 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
       body.converse_max_minutes !== undefined && me.role === "super_admin"
         ? Math.max(0, Math.min(Number(body.converse_max_minutes) || 0, 180))
         : Number((ex as Record<string, unknown>).converse_max_minutes) || 0;
-    // Grant-based powers — only Super Admin grants/revokes them (least privilege)
+    // Grant-based powers — Super Admin grants/revokes on any account. A Client Admin
+    // may edit the powers of their OWN Sub Client Admins, but can never grant a
+    // power they do not hold themselves (delegation is always a subset).
     const POWER_KEYS = [
       "can_manage_questions",
       "can_edit_surveys",
@@ -885,6 +1013,9 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
       "can_converse",
       "can_excel_charts",
     ] as const;
+    const targetRole = String(ex.role || "");
+    const subEditableByMe = targetRole === "sub_client_admin" && me.role === "admin" &&
+      Number(ex.created_by) === Number(me.id);
     const nextPowers: Record<string, boolean> = {};
     for (const k of POWER_KEYS) {
       const cur = sqlBool((ex as Record<string, unknown>)[k]);
@@ -893,6 +1024,9 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
       } else if (me.role === "super_admin") {
         // Accept true/false only from Super Admin body (boolean or "true"/"false")
         nextPowers[k] = sqlBool(body[k]);
+      } else if (subEditableByMe) {
+        // Delegate a subset: clamp the requested grant to the Client Admin's own powers
+        nextPowers[k] = sqlBool(body[k]) && sqlBool((me as unknown as Record<string, unknown>)[k]);
       } else {
         nextPowers[k] = cur; // Client Admin cannot change own grants
       }
@@ -950,12 +1084,13 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
               max_surveyors = ${nextMaxSurveyors},
               max_records = ${nextMaxRecords},
               max_categories = ${nextMaxCategories},
+              max_sub_admins = ${nextMaxSubAdmins},
               can_converse = ${nextPowers.can_converse},
               can_excel_charts = ${nextPowers.can_excel_charts},
               converse_max_records = ${nextConverseMaxRecords},
               converse_max_minutes = ${nextConverseMaxMinutes}
           WHERE id = ${id}
-          RETURNING id, username, display_name, company_name, role, active, created_at, target_quota, key_id, phone, photo, aadhaar_front, aadhaar_back, verified, can_manage_questions, can_edit_surveys, can_review_data, can_verify_surveyors, can_assign_surveyors, can_crud_questionnaire, can_validate_proof, can_web_survey, can_record_voice, can_translate_telugu, max_questions_per_survey, max_surveys, max_surveyors, max_records, max_categories, can_converse, can_excel_charts, converse_max_records, converse_max_minutes
+          RETURNING id, username, display_name, company_name, role, active, created_at, target_quota, key_id, phone, photo, aadhaar_front, aadhaar_back, verified, can_manage_questions, can_edit_surveys, can_review_data, can_verify_surveyors, can_assign_surveyors, can_crud_questionnaire, can_validate_proof, can_web_survey, can_record_voice, can_translate_telugu, max_questions_per_survey, max_surveys, max_surveyors, max_records, max_categories, max_sub_admins, can_converse, can_excel_charts, converse_max_records, converse_max_minutes
         `;
     } catch (e) {
       const msg = (e as Error).message || "";
@@ -1074,9 +1209,15 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
     if (id === me.id) return json({ error: "Cannot delete your own account" }, 400);
     const existing = await sql`SELECT id, username, role, created_by FROM app_users WHERE id = ${id}`;
     if (!existing.length) return json({ error: "Not found" }, 404);
-    // BR-004 tenant scoping: a Client Admin may only delete surveyors they created.
-    if (me.role !== "super_admin" && Number((existing[0] as { created_by?: unknown }).created_by) !== me.id) {
+    // BR-004 tenant scoping: a Client Admin may only delete accounts they created.
+    // A Sub Client Admin may only delete surveyors from the parent team.
+    const delAnchor = me.role === "sub_client_admin" ? Number(me.created_by || me.id) : Number(me.id);
+    if (me.role !== "super_admin" && Number((existing[0] as { created_by?: unknown }).created_by) !== delAnchor) {
       return json({ error: "Forbidden — that account belongs to another Client Admin" }, 403);
+    }
+    if (me.role === "sub_client_admin" &&
+        !["surveyor", "field"].includes(String((existing[0] as { role?: unknown }).role || ""))) {
+      return json({ error: "Forbidden — sub admins can only delete surveyor accounts" }, 403);
     }
     invalidateSessionCache();
       await sql`DELETE FROM app_sessions WHERE user_id = ${id}`;

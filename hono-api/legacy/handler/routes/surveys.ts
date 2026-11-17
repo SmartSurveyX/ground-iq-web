@@ -46,6 +46,12 @@ import {
 
 export async function handleSurveys(c: Ctx): Promise<Response | null> {
   const { req, url, path, method, me } = c;
+  // Scope anchors: a Sub Client Admin resolves through its parent Client Admin —
+  // every ownership predicate covers both ids (self + parent).
+  const scopeSelfId = Number(me?.id) || 0;
+  const scopeAnchorId = me?.role === "sub_client_admin"
+    ? Number(me.created_by || scopeSelfId)
+    : scopeSelfId;
   // ── Surveys (multi-survey: name + own questions + team + respondents) ────
   if (path === "/api/surveys" && method === "GET") {
     if (!me) return json({ error: "Login required" }, 401);
@@ -65,8 +71,8 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
               ? await sql`
                     SELECT id, form_key, title, display_lang, questions, CASE WHEN jsonb_typeof(questions) = 'array' THEN jsonb_array_length(questions) ELSE 0 END::int AS question_count, updated_at, created_by, company_name, COALESCE(voice_required, FALSE) AS voice_required, COALESCE(voice_time_limit, 0) AS voice_time_limit, ended_at FROM survey_form
                     WHERE (
-                      created_by = ${me.id}
-                      OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id = ${me.id})
+                      created_by IN (${scopeSelfId}, ${scopeAnchorId})
+                      OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id IN (${scopeSelfId}, ${scopeAnchorId}))
                       OR (company_name IS NOT NULL AND company_name <> '' AND LOWER(TRIM(company_name)) = LOWER(TRIM((SELECT company_name FROM app_users WHERE id = ${me.id}))))
                       OR (company_id IS NOT NULL AND company_id = (SELECT company_id FROM app_users WHERE id = ${me.id}))
                     )
@@ -75,8 +81,8 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
                   `
               : await sql`
                     SELECT id, form_key, title, display_lang, questions, CASE WHEN jsonb_typeof(questions) = 'array' THEN jsonb_array_length(questions) ELSE 0 END::int AS question_count, updated_at, created_by, company_name, COALESCE(voice_required, FALSE) AS voice_required, COALESCE(voice_time_limit, 0) AS voice_time_limit, ended_at FROM survey_form
-                    WHERE created_by = ${me.id}
-                      OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id = ${me.id})
+                    WHERE created_by IN (${scopeSelfId}, ${scopeAnchorId})
+                      OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id IN (${scopeSelfId}, ${scopeAnchorId}))
                       OR (company_name IS NOT NULL AND company_name <> '' AND LOWER(TRIM(company_name)) = LOWER(TRIM((SELECT company_name FROM app_users WHERE id = ${me.id}))))
                       OR (company_id IS NOT NULL AND company_id = (SELECT company_id FROM app_users WHERE id = ${me.id}))
                     ORDER BY title
@@ -86,8 +92,8 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
         ? await sql`SELECT id, form_key, title, questions, updated_at, created_by, company_name FROM survey_form ORDER BY title`.catch(() => [])
         : await sql`
               SELECT id, form_key, title, questions, updated_at, created_by, company_name FROM survey_form
-              WHERE created_by = ${me.id}
-                OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id = ${me.id})
+              WHERE created_by IN (${scopeSelfId}, ${scopeAnchorId})
+                OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id IN (${scopeSelfId}, ${scopeAnchorId}))
                 OR (company_name IS NOT NULL AND company_name <> '' AND LOWER(TRIM(company_name)) = LOWER(TRIM((SELECT company_name FROM app_users WHERE id = ${me.id}))))
                 OR (company_id IS NOT NULL AND company_id = (SELECT company_id FROM app_users WHERE id = ${me.id}))
               ORDER BY title
@@ -363,7 +369,7 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
     // Super-Admin-set cap on how many surveys this Client Admin may create (0 = unlimited)
     const maxSvCreate = Number((me as Record<string, unknown>).max_surveys) || 0;
     if (maxSvCreate > 0) {
-      const mine = await sql`SELECT COUNT(*)::int AS n FROM survey_form WHERE created_by = ${me.id}`.catch(() => [{ n: 0 }]);
+      const mine = await sql`SELECT COUNT(*)::int AS n FROM survey_form WHERE created_by IN (${scopeSelfId}, ${scopeAnchorId})`.catch(() => [{ n: 0 }]);
       const createdCount = Number((mine[0] as { n?: number })?.n || 0);
       if (createdCount >= maxSvCreate) {
         return json({
@@ -446,8 +452,8 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
       : await sql`
               SELECT id, form_key, title, display_lang, questions, updated_at, created_by, company_name, COALESCE(voice_required, FALSE) AS voice_required, COALESCE(voice_time_limit, 0) AS voice_time_limit, ended_at FROM survey_form
               WHERE id = ${id} AND (
-                created_by = ${me.id}
-                OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id = ${me.id})
+                created_by IN (${scopeSelfId}, ${scopeAnchorId})
+                OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id IN (${scopeSelfId}, ${scopeAnchorId}))
                 OR (company_name IS NOT NULL AND company_name <> '' AND LOWER(TRIM(company_name)) = LOWER(TRIM((SELECT company_name FROM app_users WHERE id = ${me.id}))))
                 OR (company_id IS NOT NULL AND company_id = (SELECT company_id FROM app_users WHERE id = ${me.id}))
               )
@@ -458,8 +464,8 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
         : await sql`
                 SELECT id, form_key, title, questions, updated_at, created_by, company_name FROM survey_form
                 WHERE id = ${id} AND (
-                  created_by = ${me.id}
-                  OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id = ${me.id})
+                  created_by IN (${scopeSelfId}, ${scopeAnchorId})
+                  OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id IN (${scopeSelfId}, ${scopeAnchorId}))
                   OR (company_name IS NOT NULL AND company_name <> '' AND LOWER(TRIM(company_name)) = LOWER(TRIM((SELECT company_name FROM app_users WHERE id = ${me.id}))))
                   OR (company_id IS NOT NULL AND company_id = (SELECT company_id FROM app_users WHERE id = ${me.id}))
                 )
@@ -477,7 +483,7 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
       : await sql`
         SELECT u.id, u.username, u.display_name, u.active
         FROM survey_assignments sa JOIN app_users u ON u.id = sa.user_id
-        WHERE sa.survey_id = ${id} AND u.created_by = ${me.id} ORDER BY u.username
+        WHERE sa.survey_id = ${id} AND u.created_by IN (${scopeSelfId}, ${scopeAnchorId}) ORDER BY u.username
       `.catch(() => []);
     const respondents = await sql`
         SELECT id, name, phone, status, done_at, submission_id, created_at
@@ -592,8 +598,8 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
       : await sql`
             SELECT id, title, form_key FROM survey_form
             WHERE id = ${id} AND (
-              created_by = ${me.id}
-              OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id = ${me.id})
+              created_by IN (${scopeSelfId}, ${scopeAnchorId})
+              OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id IN (${scopeSelfId}, ${scopeAnchorId}))
               OR (company_name IS NOT NULL AND company_name <> '' AND LOWER(TRIM(company_name)) = LOWER(TRIM((SELECT company_name FROM app_users WHERE id = ${me.id}))))
               OR (company_id IS NOT NULL AND company_id = (SELECT company_id FROM app_users WHERE id = ${me.id}))
             )
@@ -778,7 +784,7 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
     // delete rights, so one admin can't remove a survey others rely on.
     const rows = me.role === "super_admin"
       ? await sql`SELECT form_key FROM survey_form WHERE id = ${id}`
-      : await sql`SELECT form_key FROM survey_form WHERE id = ${id} AND created_by = ${me.id}`;
+      : await sql`SELECT form_key FROM survey_form WHERE id = ${id} AND created_by IN (${scopeSelfId}, ${scopeAnchorId})`;
     if (!rows.length) return json({ error: "Not found or not your survey" }, 404);
     {
       const formKey = String((rows[0] as { form_key?: string }).form_key || "");
@@ -819,15 +825,15 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
     // A Client Admin maps only their own surveyors to owned or assigned projects.
     const rows = await sql`
         SELECT id FROM survey_form
-        WHERE id = ${id} AND (created_by = ${me.id}
-          OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id = ${me.id}))
+        WHERE id = ${id} AND (created_by IN (${scopeSelfId}, ${scopeAnchorId})
+          OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id IN (${scopeSelfId}, ${scopeAnchorId})))
       `;
     if (!rows.length) return json({ error: "Not found or not your survey" }, 404);
     // Filter in JS — neon ANY(${ids}) has dropped every id on some deploys,
     // which then DELETE'd the team and inserted nobody.
     const mine = await sql`
         SELECT id FROM app_users
-        WHERE created_by = ${me.id} AND role IN ('surveyor', 'field')
+        WHERE created_by IN (${scopeSelfId}, ${scopeAnchorId}) AND role IN ('surveyor', 'field')
       `.catch(() => []);
     const mineSet = new Set((mine as { id: number }[]).map((r) => Number(r.id)));
     const allowed = ids.filter((v) => mineSet.has(v));
@@ -841,7 +847,7 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
     const currentRows = await sql`
         SELECT user_id FROM survey_assignments
         WHERE survey_id = ${id} AND user_id IN (
-          SELECT id FROM app_users WHERE created_by = ${me.id} AND role IN ('surveyor', 'field')
+          SELECT id FROM app_users WHERE created_by IN (${scopeSelfId}, ${scopeAnchorId}) AND role IN ('surveyor', 'field')
         )
       `.catch(() => []);
     const current = new Set((currentRows as { user_id: number }[]).map((r) => Number(r.user_id)));
@@ -872,7 +878,7 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
     if (!Number.isFinite(userId)) return json({ error: "Invalid user id" }, 400);
     if (me.role !== "super_admin") {
       const owned = await sql`
-          SELECT id FROM app_users WHERE id = ${userId} AND created_by = ${me.id} LIMIT 1
+          SELECT id FROM app_users WHERE id = ${userId} AND created_by IN (${scopeSelfId}, ${scopeAnchorId}) LIMIT 1
         `.catch(() => []);
       if (!owned.length) return json({ error: "You can only view surveyors you created" }, 403);
     }
@@ -927,7 +933,7 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
     if (target.role !== "surveyor" && target.role !== "field") {
       return json({ error: "Only surveyors can be assigned surveys" }, 422);
     }
-    if (Number(target.created_by) !== Number(me.id)) {
+    if (Number(target.created_by) !== Number(scopeAnchorId)) {
       return json({ error: "You can only assign surveys to surveyors you created" }, 403);
     }
 
@@ -935,8 +941,8 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
     // which then DELETE'd this surveyor's surveys and inserted nobody.
     const okSurveys = await sql`
         SELECT id FROM survey_form
-        WHERE created_by = ${me.id}
-           OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id = ${me.id})
+        WHERE created_by IN (${scopeSelfId}, ${scopeAnchorId})
+           OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id IN (${scopeSelfId}, ${scopeAnchorId}))
       `.catch(() => []);
     const okSet = new Set((okSurveys as { id: number }[]).map((r) => Number(r.id)));
     const allowedSurveyIds = [...new Set(surveyIds.filter((v) => okSet.has(v)))];
@@ -951,8 +957,8 @@ export async function handleSurveys(c: Ctx): Promise<Response | null> {
         WHERE user_id = ${userId}
           AND survey_id IN (
             SELECT id FROM survey_form
-            WHERE created_by = ${me.id}
-               OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id = ${me.id})
+            WHERE created_by IN (${scopeSelfId}, ${scopeAnchorId})
+               OR id IN (SELECT survey_id FROM survey_admin_access WHERE admin_id IN (${scopeSelfId}, ${scopeAnchorId}))
           )
       `.catch(() => []);
     const current = new Set((currentRows as { survey_id: number }[]).map((r) => Number(r.survey_id)));

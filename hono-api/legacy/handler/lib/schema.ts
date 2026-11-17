@@ -150,9 +150,11 @@ export async function ensureSchema(): Promise<void> {
     () => sql`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
     () => sql`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS target_quota INTEGER NOT NULL DEFAULT 0`,
     () => sql`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS created_by INT`,
+    // Sub Client Admin delegation: how many sub admins this account may create. 0 = unlimited.
+    () => sql`ALTER TABLE app_users ADD COLUMN IF NOT EXISTS max_sub_admins INTEGER NOT NULL DEFAULT 2`,
     // Role check (moved out of seedMissingSuperAdminSlots)
     () => sql`ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_role_check`,
-    () => sql`ALTER TABLE app_users ADD CONSTRAINT app_users_role_check CHECK (role IN ('super_admin','admin','field','user','surveyor'))`,
+    () => sql`ALTER TABLE app_users ADD CONSTRAINT app_users_role_check CHECK (role IN ('super_admin','admin','field','user','surveyor','sub_client_admin'))`,
     // Enables ON CONFLICT (survey_id, user_id) in upsertSurveyAssignment
     () => sql`CREATE UNIQUE INDEX IF NOT EXISTS survey_assignments_survey_user_uidx ON survey_assignments (survey_id, user_id)`,
     // Per-assigned-survey target (Home stacked bar). Never store COUNT(assignments) here.
@@ -394,7 +396,7 @@ export async function ensureCompanyExists(
 
 // Bump this when ensureSchema() steps change. The version is stored in
 // app_settings; if it matches, the ~58 CREATE/ALTER round-trips are skipped.
-const SCHEMA_VERSION = "2026-11-02.1";
+const SCHEMA_VERSION = "2026-11-17.1";
 
 export let schemaReady: Promise<void> | null = null;
 

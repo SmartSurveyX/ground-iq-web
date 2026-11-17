@@ -1249,7 +1249,7 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
   return (
     <div className="screen">
       <header className="screen-head">
-        <h2>{me?.role === 'super_admin' ? 'Super Admin' : 'Client Admin'} · Surveyors</h2>
+        <h2>{me?.role === 'super_admin' ? 'Super Admin' : me?.role === 'sub_client_admin' ? 'Sub Admin' : 'Client Admin'} · Surveyors</h2>
         <p>
           Create surveyor logins · open a surveyor profile to assign surveys · filters by
           day / month / geo

@@ -71,6 +71,7 @@ export function authUserPayload(u: Record<string, unknown>) {
     company_name: u.company_name ? String(u.company_name) : null,
     key_id: u.key_id || null,
     phone: u.phone || null,
+    created_by: u.created_by != null ? Number(u.created_by) : null,
     verified: sqlBool(u.verified),
     can_manage_questions: sqlBool(u.can_manage_questions),
     can_edit_surveys: sqlBool(u.can_edit_surveys),
@@ -88,6 +89,7 @@ export function authUserPayload(u: Record<string, unknown>) {
     max_surveyors: Number(u.max_surveyors) || 0,
     max_records: Number(u.max_records) || 0,
     max_categories: Number(u.max_categories) || 0,
+    max_sub_admins: Number(u.max_sub_admins) || 0,
   };
 }
 
