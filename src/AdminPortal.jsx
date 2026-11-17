@@ -1248,8 +1248,9 @@ export default function AdminPortal({ superAdminOnly = false }) {
 
   useIdleTimeout({
     onTimeout: handleIdleLogout,
-    timeoutMs: 5 * 60 * 1000,
+    timeoutMs: 30 * 60 * 1000,
     enabled: Boolean(user && authReady),
+    storageKey: `esurvey_last_active_${String(user?.id ?? 'anon')}`,
   })
 
   useEffect(() => {

@@ -20,6 +20,7 @@ export function useIdleTimeout({
   onTimeout,
   timeoutMs = DEFAULT_IDLE_TIMEOUT_MS,
   enabled = true,
+  storageKey = LAST_ACTIVE_KEY,
 }) {
   const timeoutCallbackRef = useRef(onTimeout)
   timeoutCallbackRef.current = onTimeout
@@ -33,11 +34,11 @@ export function useIdleTimeout({
     lastRecordedRef.current = now
     lastActiveRef.current = now
     try {
-      localStorage.setItem(LAST_ACTIVE_KEY, String(now))
+      localStorage.setItem(storageKey, String(now))
     } catch {
       /* ignore */
     }
-  }, [])
+  }, [storageKey])
 
   useEffect(() => {
     if (!enabled) return undefined
@@ -45,7 +46,7 @@ export function useIdleTimeout({
     const now = Date.now()
     let prevActive = 0
     try {
-      const stored = Number(localStorage.getItem(LAST_ACTIVE_KEY))
+      const stored = Number(localStorage.getItem(storageKey))
       if (stored && !Number.isNaN(stored)) {
         prevActive = stored
       }
