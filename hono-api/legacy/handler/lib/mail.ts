@@ -5,14 +5,13 @@
  * helper logs and returns { sent: false } — email is best-effort, never a
  * reason for an API call to fail.
  *
- * Sender restriction: the test sender onboarding@resend.dev may only deliver
- * to the account owner's own address. Sending to arbitrary recipients
- * requires a verified domain in Resend (SPF/DKIM records) — MAIL_FROM should
- * then be set to an address on that domain.
+ * Sender: smartsurveyx.com is verified in Resend, so mail may go to any
+ * recipient from any address on the domain. MAIL_FROM (env) overrides the
+ * default sender if a different address is preferred.
  */
 
 const RESEND_API = "https://api.resend.com/emails";
-const DEFAULT_FROM = "Smart Survey X <onboarding@resend.dev>";
+const DEFAULT_FROM = "Smart Survey X <no-reply@smartsurveyx.com>";
 const NOTIFY_TO = "smartsurveyx@gmail.com";
 
 export type MailResult = { sent: boolean; id?: string; error?: string };
@@ -24,6 +23,7 @@ export async function sendEmail(opts: {
   from?: string;
 }): Promise<MailResult> {
   const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
+  const envFrom = (Deno.env.get("MAIL_FROM") || "").trim();
   const to = Array.isArray(opts.to) ? opts.to : [opts.to];
   const valid = to.filter((t) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t));
   if (!key || !valid.length) return { sent: false, error: key ? "no valid recipient" : "RESEND_API_KEY not set" };
@@ -35,7 +35,7 @@ export async function sendEmail(opts: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: opts.from || DEFAULT_FROM,
+        from: opts.from || envFrom || DEFAULT_FROM,
         to: valid,
         subject: opts.subject,
         html: opts.html,
