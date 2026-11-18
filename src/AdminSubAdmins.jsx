@@ -27,7 +27,7 @@ function initialsOf(name) {
     .join('')
 }
 
-const EMPTY_FORM = { username: '', name: '', phone: '', password: '' }
+const EMPTY_FORM = { username: '', name: '', phone: '', email: '', password: '' }
 
 export default function AdminSubAdminsScreen({ onToast }) {
   const me = useMemo(() => getStoredUser() || {}, [])
@@ -92,6 +92,7 @@ export default function AdminSubAdminsScreen({ onToast }) {
         password: form.password,
         name: (form.name || typedUser).trim(),
         phone: form.phone.trim(),
+        email: form.email.trim(),
         role: 'sub_client_admin',
         target_quota: 0,
         ...grants,
@@ -228,6 +229,13 @@ export default function AdminSubAdminsScreen({ onToast }) {
             value={form.phone}
             onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
             style={{ flex: 1, minWidth: 140, minHeight: 42, fontSize: 14, border: '1.5px solid #cbd5e1', borderRadius: 8, padding: '0 10px' }}
+          />
+          <input
+            type="email"
+            placeholder="Email (optional — credentials sent here)"
+            value={form.email}
+            onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+            style={{ flex: 1, minWidth: 160, minHeight: 42, fontSize: 14, border: '1.5px solid #cbd5e1', borderRadius: 8, padding: '0 10px' }}
           />
           <input
             type="password"

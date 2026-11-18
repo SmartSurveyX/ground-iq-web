@@ -249,6 +249,20 @@ export async function handlePublic(c: Ctx): Promise<Response | null> {
       } catch (e) {
         console.error("contact email failed:", (e as Error)?.message || e);
       }
+    } else if ((Deno.env.get("RESEND_API_KEY") || "").trim()) {
+      // Resend path — works without Gmail app-password setup. Note the test
+      // sender (onboarding@resend.dev) only delivers to the account owner's
+      // address until a sending domain is verified in Resend.
+      try {
+        const { sendEmail, contactRequestNotifyHtml } = await import("../lib/mail.ts");
+        await sendEmail({
+          to: mailTo,
+          subject: `Contact request — ${purpose}`.slice(0, 150),
+          html: contactRequestNotifyHtml({ name, email, purpose, message: message || "" }),
+        });
+      } catch (e) {
+        console.error("contact email (resend) failed:", (e as Error)?.message || e);
+      }
     }
     return json({ ok: true, message: "Request received — the Super Admin will contact you." });
   }

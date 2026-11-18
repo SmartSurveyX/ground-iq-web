@@ -26,6 +26,10 @@ import {
   tryOptionalExternalUpload,
 } from "../lib/r2-media.ts";
 import {
+  credentialsEmailHtml,
+  sendEmail,
+} from "../lib/mail.ts";
+import {
   ensureCompanyExists,
 } from "../lib/schema.ts";
 import {
@@ -515,6 +519,24 @@ export async function handleUsers(c: Ctx): Promise<Response | null> {
           RETURNING id, username, display_name, company_name, company_id, role, active, created_at, target_quota, key_id, phone, can_manage_questions, can_edit_surveys, can_review_data, can_verify_surveyors, can_assign_surveyors, can_crud_questionnaire, can_validate_proof, can_web_survey, can_record_voice, can_translate_telugu, can_converse, can_excel_charts, max_questions_per_survey, max_surveys, max_surveyors, max_records, max_categories, converse_max_records, converse_max_minutes
         `;
       const u = inserted[0] as Record<string, unknown>;
+
+      // Best-effort credentials email when the creator provided an address.
+      // Works for arbitrary recipients only after a sending domain is verified
+      // in Resend; the test sender is limited to the account owner's inbox.
+      const inviteEmail = String(body.email || "").trim();
+      if (inviteEmail) {
+        void sendEmail({
+          to: inviteEmail,
+          subject: `Smart Survey X access — ${role === "sub_client_admin" ? "Sub Client Admin" : "Account"} credentials`,
+          html: credentialsEmailHtml({
+            name: name || username,
+            username,
+            password,
+            role,
+            loginUrl: "https://www.smartsurveyx.com/admin",
+          }),
+        }).catch(() => null);
+      }
 
       // Surveyors are explicitly assigned to surveys by Client Admin via Assign Surveyors tool
 
