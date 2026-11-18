@@ -1158,6 +1158,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
   const canPage = useCallback(
     (p) => {
       if (isSuper) return p !== 'subadmins' // Super manages sub-admin seats via Client Admins
+      if (user?.role === 'sub_client_admin' && p === 'subadmins') return false // only the Client Admin manages sub admins
       if (['companies', 'admins', 'seats', 'audit'].includes(p)) return false
       const need = PAGE_POWER[p]
       if (!need) return true
@@ -1579,7 +1580,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
 
           <div className="side-section-label" style={{ marginTop: 14 }}>SETUP &amp; TEAM</div>
           <button className={`side-sub ${page === 'users' ? 'active' : ''}`} onClick={() => goPage('users')}><Icon name="users" size={18} />Surveyors &amp; Quotas</button>
-          {!isSuper && (
+          {user?.role === 'admin' && (
             <button className={`side-sub ${page === 'subadmins' ? 'active' : ''}`} onClick={() => goPage('subadmins')}><Icon name="shield" size={18} />Sub Admins</button>
           )}
           <button className={`side-sub ${['surveys', 'questions', 'bank'].includes(page) ? 'active' : ''}`} onClick={() => goPage('surveys')}><Icon name="clipboard" size={18} />Surveys &amp; Forms</button>
