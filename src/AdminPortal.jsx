@@ -50,12 +50,13 @@ const AdminProfileScreen = lazy(() => import('./AdminProfile'))
 const AdminContactRequestsScreen = lazy(() => import('./AdminContactRequests'))
 const AdminErrorsScreen = lazy(() => import('./AdminErrors'))
 const AdminSubAdminsScreen = lazy(() => import('./AdminSubAdmins'))
+const AdminExploreScreen = lazy(() => import('./AdminExplore'))
 
 // Matches the sidebar: each group’s `pages` become the subtabs on that screen.
 const NAV = [
   { id: 'overview', label: 'Dashboard', icon: 'grid', pages: ['overview'] },
-  { id: 'analyze', label: 'Analyze & Export', icon: 'chart', pages: ['analyze', 'charts', 'report', 'conversations', 'upload', 'data'] },
-  { id: 'review', label: 'Review QA', icon: 'check', pages: ['review'] },
+  { id: 'analyze', label: 'Analyze & Export', icon: 'chart', pages: ['analyze', 'explore', 'data'] },
+  { id: 'review', label: 'Review QA', icon: 'check', pages: ['review', 'conversations'] },
   { id: 'surveyors', label: 'Surveyors', icon: 'user', pages: ['users'] },
   { id: 'subadmins', label: 'Sub Admins', icon: 'shield', pages: ['subadmins'] },
   { id: 'surveys', label: 'Surveys & Forms', icon: 'clipboard', pages: ['surveys', 'questions', 'web', 'bank'] },
@@ -101,6 +102,8 @@ const PAGE_LABELS = {
   overview: 'Overview',
   analyze: 'Dashboard',
   charts: 'Excel Charts',
+  explore: 'Explore',
+  data: 'Data',
   report: 'Live Feed',
   users: 'Surveyors',
   subadmins: 'Sub Admins',
@@ -1071,63 +1074,6 @@ function Overview({ user, stats, onNav, superAdminOnly = false, canPage = () => 
   )
 }
 
-
-function DataList({ items, loading, onRefresh, surveys, surveyFilter, onSurveyChange }) {
-  return (
-    <div className="portal-page">
-      <header className="portal-page-head row">
-        <div>
-          <h1>Raw data</h1>
-          <p className="portal-lead">Latest submissions (use Analyze for filters)</p>
-        </div>
-        <label className="field compact">
-          <span>By survey</span>
-          <select value={surveyFilter} onChange={(e) => onSurveyChange(e.target.value)}>
-            {surveys.length === 0 ? <option value="">Select survey</option> : null}
-            {surveys.map((s) => (
-              <option key={s.id} value={s.form_key}>
-                {s.title}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="button" className="btn small" onClick={onRefresh} disabled={loading}>
-          {loading ? '…' : 'Refresh'}
-        </button>
-      </header>
-      {loading ? (
-        <PortalSkeleton rows={5} label="Loading submissions…" />
-      ) : !items.length ? (
-        <PortalEmpty title="No rows yet">
-          Collect from the field app or widen the survey filter.
-        </PortalEmpty>
-      ) : (
-        <ul className="user-list">
-          {items.map((it) => {
-            const a = it.answers || {}
-            const title =
-              surveys.find((s) => s.form_key === it.form_key)?.title || it.form_key || 'Survey'
-            return (
-              <li key={it.id}>
-                <div>
-                  <strong>
-                    #{it.id} · {title}
-                  </strong>
-                  <span className="meta">
-                    {' '}
-                    {it.submitted_by || a.data_collector || '—'} · {formatDate(it.created_at)} ·{' '}
-                    {it.status || 'pending'}
-                  </span>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </div>
-  )
-}
-
 export default function AdminPortal({ superAdminOnly = false }) {
   // Live APK release — sidebar download link follows the Cloudflare mirror.
   const appRelease = useAppRelease()
@@ -1143,10 +1089,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
   const [authReady, setAuthReady] = useState(false)
   const [page, setPage] = useState('overview')
   const [stats, setStats] = useState(null)
-  const [items, setItems] = useState([])
   const [surveys, setSurveys] = useState([])
-  const [surveyFilter, setSurveyFilter] = useState('')
-  const [loadingData, setLoadingData] = useState(false)
   const [toast, setToast] = useState(null)
   const [navOpen, setNavOpen] = useState(false)
   const [deepLink, setDeepLink] = useState(null)
@@ -1298,40 +1241,13 @@ export default function AdminPortal({ superAdminOnly = false }) {
     }
   }, [])
 
-  /** Raw data tab only */
-  const refreshData = useCallback(async () => {
-    if (!getToken()) return
-    if (!surveyFilter) {
-      setItems([])
-      return
-    }
-    setLoadingData(true)
-    try {
-      const data = await listSubmissions(150, '', { survey: surveyFilter })
-      setItems(data.items || [])
-    } catch (e) {
-      if (e.status === 401) {
-        await handleLogout()
-        return
-      }
-      notify(e.message, 'error')
-    } finally {
-      setLoadingData(false)
-    }
-  }, [notify, handleLogout, surveyFilter])
-
-  /** Manual refresh: stats always; raw rows only if on Data tab */
+  /** Manual refresh: stats + session */
   const loadPortal = useCallback(async () => {
     if (!getToken()) return
-    setLoadingData(true)
     try {
       const meRes = await me().catch(() => null)
       if (meRes?.user) setUser(meRes.user)
       await loadStats()
-      if (page === 'data') {
-        const data = await listSubmissions(150, '', { survey: surveyFilter })
-        setItems(data.items || [])
-      }
       notify('Portal data refreshed ✓', 'ok')
     } catch (e) {
       if (e.status === 401) {
@@ -1339,10 +1255,8 @@ export default function AdminPortal({ superAdminOnly = false }) {
         return
       }
       notify(e.message || 'Refresh failed', 'error')
-    } finally {
-      setLoadingData(false)
     }
-  }, [loadStats, page, surveyFilter, notify, handleLogout])
+  }, [loadStats, notify, handleLogout])
 
   useEffect(() => {
     let cancelled = false
@@ -1448,13 +1362,6 @@ export default function AdminPortal({ superAdminOnly = false }) {
     }
   }, [user?.id, authReady])
 
-  // Data tab: submissions only when open
-  useEffect(() => {
-    if (user && authReady && page === 'data') {
-      void refreshData()
-    }
-  }, [user, authReady, page, surveyFilter, refreshData])
-
   // Surveys list only when a page needs the dropdown
   useEffect(() => {
     if (!user || !authReady) return
@@ -1555,11 +1462,10 @@ export default function AdminPortal({ superAdminOnly = false }) {
           <button
             type="button"
             className="btn small portal-refresh-pill"
-            disabled={loadingData}
             onClick={() => void loadPortal()}
             title="Refresh"
           >
-            {loadingData ? '…' : '↻'}
+            ↻
           </button>
           <AdminBell user={user} onGoPage={goPage} enabled={isNarrow} />
         </div>
@@ -1582,8 +1488,14 @@ export default function AdminPortal({ superAdminOnly = false }) {
         <nav className="portal-nav">
           <div className="side-section-label">MONITORING</div>
           <button className={`side-sub ${page === 'overview' ? 'active' : ''}`} onClick={() => goPage('overview')}><Icon name="grid" size={18} />Dashboard</button>
-          <button className={`side-sub ${['analyze', 'charts', 'report', 'upload', 'data', 'conversations'].includes(page) ? 'active' : ''}`} onClick={() => goPage('analyze')}><Icon name="chartUp" size={18} />Analyze &amp; Export</button>
+          <button className={`side-sub ${['analyze', 'explore', 'data'].includes(page) ? 'active' : ''}`} onClick={() => goPage('analyze')}><Icon name="chartUp" size={18} />Analyze &amp; Export</button>
           <button className={`side-sub ${page === 'review' ? 'active' : ''}`} onClick={() => goPage('review')}><Icon name="clipboardCheck" size={18} />Review QA</button>
+          <button
+            className={`side-sub ${page === 'conversations' ? 'active' : ''}`}
+            style={!canPage('conversations') ? { opacity: 0.45 } : undefined}
+            title={!canPage('conversations') ? 'Ask your Client Admin to grant you: Conversations' : undefined}
+            onClick={() => goPage('conversations')}
+          ><Icon name="mic" size={18} />Conversations</button>
 
           <div className="side-section-label" style={{ marginTop: 14 }}>SETUP &amp; TEAM</div>
           <button className={`side-sub ${page === 'users' ? 'active' : ''}`} onClick={() => goPage('users')}><Icon name="users" size={18} />Surveyors &amp; Quotas</button>
@@ -1735,8 +1647,9 @@ export default function AdminPortal({ superAdminOnly = false }) {
             <AdminQuestionsScreen onToast={notify} user={user} />
           )}
           {/* Report = tables/boards (AdminAnalyze); Analyze = charts/maps (Dashboard) */}
-          {page === 'report' && canPage('report') && <AdminAnalyzeScreen onToast={notify} />}
-          {page === 'charts' && canPage('charts') && <AdminChartsScreen />}
+          {(page === 'explore' || page === 'charts' || page === 'report') && canPage(page) && (
+            <AdminExploreScreen initialMode={page === 'report' ? 'live' : 'charts'} onToast={notify} />
+          )}
           {page === 'analyze' && canPage('analyze') && <DashboardScreen onToast={notify} />}
           {page === 'review' && canPage('review') && (
             <ReviewQAScreen
@@ -1748,7 +1661,9 @@ export default function AdminPortal({ superAdminOnly = false }) {
               onFocusConsumed={() => setDeepLink(null)}
             />
           )}
-          {page === 'upload' && canPage('upload') && <AdminDataScreen onToast={notify} />}
+          {(page === 'upload' || page === 'data') && canPage(page) && (
+            <AdminDataScreen onToast={notify} initialTab={page === 'upload' ? 'export' : 'raw'} />
+          )}
           {page === 'conversations' && canPage('conversations') && (
             <AdminConversationsScreen onToast={notify} />
           )}
@@ -1782,16 +1697,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
           {page === 'companies' && canPage('companies') && (
             <AdminCompaniesScreen onToast={notify} onNav={goPage} />
           )}
-          {page === 'data' && canPage('data') && (
-            <DataList
-              items={items}
-              loading={loadingData}
-              onRefresh={refreshData}
-              surveys={surveys}
-              surveyFilter={surveyFilter}
-              onSurveyChange={(v) => setSurveyFilter(v)}
-            />
-          )}
+
           </ChunkErrorBoundary>
         </Suspense>
       </main>
@@ -1818,7 +1724,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
 
         <button
           type="button"
-          className={`portal-tab-btn ${['analyze', 'report', 'upload', 'data', 'conversations'].includes(page) ? 'active' : ''}`}
+          className={`portal-tab-btn ${['analyze', 'explore', 'data'].includes(page) ? 'active' : ''}`}
           onClick={() => goPage('analyze')}
         >
           <span className="portal-tab-icon"><Icon name="chartUp" size={22} /></span>
@@ -1827,7 +1733,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
 
         <button
           type="button"
-          className={`portal-tab-btn ${page === 'review' ? 'active' : ''}`}
+          className={`portal-tab-btn ${['review', 'conversations'].includes(page) ? 'active' : ''}`}
           onClick={() => goPage('review')}
         >
           <span className="portal-tab-icon" style={{ position: 'relative' }}>

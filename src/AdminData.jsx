@@ -1,3 +1,4 @@
+import DataList from './components/DataList'
 import { useCallback, useEffect, useState } from 'react'
 import Icon from './Icons'
 import Papa from 'papaparse'
@@ -23,7 +24,7 @@ import { PortalSkeleton } from './PortalUI'
  * 2) Survey upload — CSV/JSON survey responses into Neon
  */
 export default function AdminDataScreen({ onToast, initialTab = 'export' }) {
-  const [tab, setTab] = useState(initialTab) // export | geography | surveys
+  const [tab, setTab] = useState(initialTab === 'raw' ? 'raw' : initialTab) // export | geography | surveys | raw
   const [geo, setGeo] = useState(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -373,7 +374,7 @@ export default function AdminDataScreen({ onToast, initialTab = 'export' }) {
     <div className="screen admin-data-screen">
       <header className="screen-head">
         <h2>Admin data</h2>
-        <p>Geography inventory + survey upload + data export (3 tabs)</p>
+        <p>Geography inventory + survey upload + data export + raw rows (4 tabs)</p>
       </header>
 
       <div className="admin-subtabs">
@@ -398,7 +399,16 @@ export default function AdminDataScreen({ onToast, initialTab = 'export' }) {
         >
           3 · Export
         </button>
+        <button
+          type="button"
+          className={tab === 'raw' ? 'map-tab active' : 'map-tab'}
+          onClick={() => setTab('raw')}
+        >
+          4 · Raw data
+        </button>
       </div>
+
+      {tab === 'raw' && <DataList />}
 
       {tab === 'geography' && (
         <div className="admin-pane">
