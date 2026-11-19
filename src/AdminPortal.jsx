@@ -25,7 +25,7 @@ import VerifiedBadge from './VerifiedBadge'
 import { PortalEmpty, PortalSkeleton } from './PortalUI'
 import { claimReload, isChunkLoadError, reloadSoon, hardReload } from './reloadGuard'
 import AdminBell from './AdminBell'
-import { fetchInboxCounts } from './AdminInbox'
+import { fetchInboxCounts, useInboxCounts } from './inboxCounts'
 import SetupChecklist from './components/SetupChecklist'
 import QuotaLine from './components/QuotaLine'
 import useIdleTimeout from './hooks/useIdleTimeout'
@@ -43,18 +43,12 @@ const AdminChartsScreen = lazy(() => import('./AdminCharts'))
 const ReviewQAScreen = lazy(() => import('./ReviewQA'))
 const DashboardScreen = lazy(() => import('./Dashboard'))
 const AdminDataScreen = lazy(() => import('./AdminData'))
-const AdminAuditScreen = lazy(() => import('./AdminAudit'))
 const AdminQuestionBankScreen = lazy(() => import('./AdminQuestionBank'))
-const AdminSeatsScreen = lazy(() => import('./AdminSeats'))
-const AdminClientAdminsScreen = lazy(() => import('./AdminClientAdmins'))
-const AdminCompaniesScreen = lazy(() => import('./AdminCompanies'))
 const AdminClientsScreen = lazy(() => import('./AdminClients'))
 const AdminInboxScreen = lazy(() => import('./AdminInbox'))
 const AdminLogsScreen = lazy(() => import('./AdminLogs'))
 const AdminWebSurveyScreen = lazy(() => import('./AdminWebSurvey'))
 const AdminProfileScreen = lazy(() => import('./AdminProfile'))
-const AdminContactRequestsScreen = lazy(() => import('./AdminContactRequests'))
-const AdminErrorsScreen = lazy(() => import('./AdminErrors'))
 const AdminSubAdminsScreen = lazy(() => import('./AdminSubAdmins'))
 const AdminExploreScreen = lazy(() => import('./AdminExplore'))
 
@@ -107,7 +101,6 @@ const PAGE_LABELS = {
   review: 'Review',
   upload: 'Export',
   conversations: 'Conversations',
-  data: 'Raw data',
   audit: 'Audit Log',
   bank: 'Question Bank',
   web: 'Web survey',
@@ -1192,21 +1185,16 @@ export default function AdminPortal({ superAdminOnly = false }) {
     setItems([])
     setSurveys([])
     setPage('overview')
-    notify('Logged out due to 5 minutes of inactivity', 'error')
+    notify('Logged out due to 30 minutes of inactivity', 'error')
   }, [notify])
 
-  const [inboxBadge, setInboxBadge] = useState(0)
+  const inboxCounts = useInboxCounts()
+  const inboxBadge = (inboxCounts.contacts || 0) + (inboxCounts.seats || 0)
   useEffect(() => {
-    if (!isSuper || !authReady) return
-    let alive = true
-    const tick = () => {
-      void fetchInboxCounts()
-        .then((c) => { if (alive) setInboxBadge((c.contacts || 0) + (c.seats || 0)) })
-        .catch(() => {})
-    }
-    tick()
-    const t = setInterval(tick, 60_000)
-    return () => { alive = false; clearInterval(t) }
+    if (!isSuper || !authReady) return undefined
+    void fetchInboxCounts()
+    const t = setInterval(() => { void fetchInboxCounts() }, 60_000)
+    return () => clearInterval(t)
   }, [isSuper, authReady])
 
   useIdleTimeout({
@@ -1684,7 +1672,6 @@ export default function AdminPortal({ superAdminOnly = false }) {
           {page === 'conversations' && canPage('conversations') && (
             <AdminConversationsScreen onToast={notify} />
           )}
-          {page === 'audit' && canPage('audit') && <AdminAuditScreen onToast={notify} />}
           {page === 'bank' && canPage('bank') && (
             <AdminQuestionBankScreen onToast={notify} user={user} />
           )}
@@ -1701,13 +1688,13 @@ export default function AdminPortal({ superAdminOnly = false }) {
           {page === 'subadmins' && canPage('subadmins') && (
             <AdminSubAdminsScreen onToast={notify} />
           )}
-          {['clients', 'admins', 'companies'].includes(page) && (
-            <AdminClientsScreen onToast={notify} />
+          {['clients', 'admins', 'companies'].includes(page) && canPage(page) && (
+            <AdminClientsScreen onToast={notify} user={user} />
           )}
-          {['inbox', 'contact', 'seats'].includes(page) && (
+          {['inbox', 'contact', 'seats'].includes(page) && canPage(page) && (
             <AdminInboxScreen onToast={notify} />
           )}
-          {['logs', 'errors', 'audit'].includes(page) && (
+          {['logs', 'errors', 'audit'].includes(page) && canPage(page) && (
             <AdminLogsScreen onToast={notify} />
           )}
 
