@@ -496,11 +496,11 @@ export function deleteSubmission(id) {
   })
 }
 
-export function confirmAllPending(limit = 500, note = '') {
+export function confirmAllPending(limit = 500, note = '', ids = null) {
   return request('/api/submissions/confirm-pending', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ limit, note }),
+    body: JSON.stringify(ids && ids.length ? { limit, note, ids } : { limit, note }),
   })
 }
 

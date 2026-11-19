@@ -414,8 +414,26 @@ export async function handleSubmissionsCrud(c: Ctx): Promise<Response | null> {
     }
     const body = await readBody(req);
     const max = Math.min(Number(body.limit) || 500, 2000);
+    // Optional explicit id list (Review QA "confirm unflagged only"): when present,
+    // only those pending records are considered, bounded to `max`.
+    const idList = Array.isArray(body.ids)
+      ? (body.ids as unknown[]).map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0).slice(0, 2000)
+      : null;
     const scopeKeys = await adminFormKeyScope(sql, me);
-    const rows = scopeKeys
+    const rows = idList && idList.length
+      ? scopeKeys
+        ? await sql`
+              SELECT id, payload FROM submissions
+              WHERE id = ANY(${idList})
+                AND payload->>'form_key' = ANY(${scopeKeys})
+              ORDER BY created_at DESC LIMIT ${max}
+            `
+        : await sql`
+              SELECT id, payload FROM submissions
+              WHERE id = ANY(${idList})
+              ORDER BY created_at DESC LIMIT ${max}
+            `
+      : scopeKeys
       ? await sql`
             SELECT id, payload FROM submissions
             WHERE payload->>'form_key' = ANY(${scopeKeys})

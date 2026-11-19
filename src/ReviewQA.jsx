@@ -17,6 +17,7 @@ import {
 import { PortalEmpty, PortalError, PortalSkeleton } from './PortalUI'
 import SubmissionEditor from './SubmissionEditor'
 import FeedCard from './components/FeedCard'
+import { computeFlags, FLAG_LABELS } from './components/reviewFlags'
 import { getQuestionDisplayLabel, parseQuestionsArray, resolveAnswerValue, slugQuestionKey } from './questionKey'
 
 
@@ -53,6 +54,18 @@ export default function ReviewQAScreen({
   const [survey, setSurvey] = useState(() => String(focusFormKey || ''))
   const [surveys, setSurveys] = useState([])
   const [items, setItems] = useState([])
+  const [flagFilter, setFlagFilter] = useState('attention') // attention | flagged | clean | all
+  const flags = useMemo(() => computeFlags(items), [items])
+  const visibleItems = useMemo(() => {
+    if (flagFilter === 'all') return items
+    return items.filter((it) => {
+      const f = flags.get(String(it.id)) || []
+      if (flagFilter === 'flagged') return f.length > 0
+      if (flagFilter === 'attention') return it.status === 'pending' && f.length > 0
+      if (flagFilter === 'clean') return it.status === 'pending' && f.length === 0
+      return true
+    })
+  }, [items, flags, flagFilter])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
@@ -408,8 +421,16 @@ export default function ReviewQAScreen({
     }
     setLoading(true)
     try {
-      const res = await confirmAllPending(500, 'bulk from Review')
-      onToast?.(`Confirmed ${res.confirmed || 0} surveys`, 'ok')
+      const unflagged = items
+        .filter((it) => it.status === 'pending' && !(flags.get(String(it.id)) || []).length)
+        .map((it) => Number(it.id))
+      if (!unflagged.length) {
+        onToast?.('Every pending record is flagged — review them one by one.', 'error')
+        setLoading(false)
+        return
+      }
+      const res = await confirmAllPending(500, 'bulk from Review (unflagged only)', unflagged)
+      onToast?.(`Confirmed ${res.confirmed || 0} surveys (flagged records excluded)`, 'ok')
       setStatus('confirmed')
       await load()
     } catch (e) {
@@ -434,15 +455,26 @@ export default function ReviewQAScreen({
         return
       }
       if (!items.length) return
-      const item = items[focusIdx]
+      const item = visibleItems[focusIdx]
       if (!item) return
 
       if (e.key === 'j' || e.key === 'ArrowDown') {
         e.preventDefault()
-        setFocusIdx((i) => Math.min(items.length - 1, i + 1))
+        setFocusIdx((i) => Math.min(visibleItems.length - 1, i + 1))
       } else if (e.key === 'k' || e.key === 'ArrowUp') {
         e.preventDefault()
         setFocusIdx((i) => Math.max(0, i - 1))
+      } else if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault()
+        for (let step = 1; step <= visibleItems.length; step += 1) {
+          const idx = (focusIdx + step) % Math.max(1, visibleItems.length)
+          const it = visibleItems[idx]
+          if (it && (flags.get(String(it.id)) || []).length) {
+            setFocusIdx(idx)
+            setExpanded(it.id)
+            break
+          }
+        }
       } else if (e.key === 'Enter') {
         e.preventDefault()
         setExpanded((ex) => (ex === item.id ? null : item.id))
@@ -465,7 +497,7 @@ export default function ReviewQAScreen({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [items, focusIdx, busyId, setStatusFor])
+  }, [visibleItems, flags, focusIdx, busyId, setStatusFor])
 
   // Scroll focused row into view
   useEffect(() => {
@@ -504,6 +536,23 @@ export default function ReviewQAScreen({
               onClick={() => setStatus(s.id)}
             >
               {s.label}
+            </button>
+          ))}
+        </div>
+        <div className="chip-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+          {[
+            { id: 'attention', label: `⚠ Needs attention (${items.filter((it) => it.status === 'pending' && (flags.get(String(it.id)) || []).length > 0).length})` },
+            { id: 'flagged', label: `Flagged (${items.filter((it) => (flags.get(String(it.id)) || []).length > 0).length})` },
+            { id: 'clean', label: 'Clean' },
+            { id: 'all', label: 'All' },
+          ].map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className={`chip ${flagFilter === f.id ? 'selected' : ''}`}
+              onClick={() => setFlagFilter(f.id)}
+            >
+              {f.label}
             </button>
           ))}
         </div>
@@ -591,8 +640,9 @@ export default function ReviewQAScreen({
         </PortalEmpty>
       ) : (
         <ul className="user-list review-list" ref={listRef}>
-          {items.map((item, idx) => {
+          {visibleItems.map((item, idx) => {
             const a = item.answers || {}
+            const itemFlags = flags.get(String(item.id)) || []
             const open = expanded === item.id
             const focused = focusIdx === idx
             const isWeb =
@@ -686,19 +736,23 @@ export default function ReviewQAScreen({
 
 
 
-            const signals = isWeb
-              ? [
-                  { label: 'Web', status: 'ok' },
-                  { label: 'Q/A', status: qa.length > 0 ? 'ok' : 'warn' },
-                ]
-              : [
-                  { label: 'GPS', status: item.has_geo || a.latitude ? 'ok' : 'warn' },
-                  { label: 'Photo', status: item.has_photo || photoSrc ? 'ok' : 'bad' },
-                  ...(a._voice_required === true
-                    ? [{ label: 'Voice', status: item.has_voice || audioSrc ? 'ok' : 'bad' }]
-                    : []),
-                  { label: 'Q/A', status: qa.length > 0 ? 'ok' : 'warn' },
-                ]
+            const flagSignals = itemFlags.map((fk) => ({ label: FLAG_LABELS[fk] || fk, status: 'bad' }))
+            const signals = [
+              ...flagSignals,
+              ...(isWeb
+                ? [
+                    { label: 'Web', status: 'ok' },
+                    { label: 'Q/A', status: qa.length > 0 ? 'ok' : 'warn' },
+                  ]
+                : [
+                    { label: 'GPS', status: item.has_geo || a.latitude ? 'ok' : 'warn' },
+                    { label: 'Photo', status: item.has_photo || photoSrc ? 'ok' : 'bad' },
+                    ...(a._voice_required === true
+                      ? [{ label: 'Voice', status: item.has_voice || audioSrc ? 'ok' : 'bad' }]
+                      : []),
+                    { label: 'Q/A', status: qa.length > 0 ? 'ok' : 'warn' },
+                  ]),
+            ]
 
             const actions = (
               <div className="review-actions-bar user-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: '100%' }}>
