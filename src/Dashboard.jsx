@@ -780,6 +780,70 @@ export default function DashboardScreen({ onToast }) {
     })
   }, [])
 
+  // WS8: keep analyze filters in the URL so views are shareable
+  useEffect(() => {
+    try {
+      const qs = new URLSearchParams(window.location.search)
+      if (![...qs.keys()].length) return
+      setFilters((f) => {
+        const next = { ...f }
+        for (const [k, v] of qs.entries()) if (k in next && v) next[k] = v
+        return next
+      })
+    } catch { /* ignore */ }
+  }, [])
+
+  const filterQueryString = useCallback((f) => {
+    const params = new URLSearchParams()
+    for (const [k, v] of Object.entries(f)) {
+      if (v && !(k === 'period' && v === 'total')) params.set(k, String(v))
+    }
+    return params.toString()
+  }, [])
+
+  useEffect(() => {
+    try {
+      const qs = filterQueryString(filters)
+      const url = window.location.pathname + (qs ? `?${qs}` : '')
+      window.history.replaceState(null, '', url)
+    } catch { /* ignore */ }
+  }, [filters, filterQueryString])
+
+  const saveView = useCallback(() => {
+    const name = String(viewName || '').trim()
+    if (!name) {
+      onToast?.('Type a name for this view first', 'error')
+      return
+    }
+    setViews((v) => {
+      const next = { ...v, [name]: { ...filters } }
+      try { localStorage.setItem('esurvey_analyze_views', JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+    setViewName('')
+    onToast?.(`View "${name}" saved`, 'ok')
+  }, [viewName, filters, onToast])
+
+  const applyView = useCallback((name) => {
+    const saved = views[name]
+    if (!saved) return
+    setFilters((f) => {
+      const next = { ...f }
+      for (const k of Object.keys(f)) next[k] = saved[k] !== undefined ? saved[k] : ''
+      return next
+    })
+    onToast?.(`View "${name}" applied`, 'ok')
+  }, [views, onToast])
+
+  const deleteView = useCallback((name) => {
+    setViews((v) => {
+      const next = { ...v }
+      delete next[name]
+      try { localStorage.setItem('esurvey_analyze_views', JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+  }, [])
+
   /** Chart clicks set the matching filter. Clicking the same value again clears it. */
   const drillFilter = useCallback((key, value) => {
     setFilters((f) => {
@@ -1114,6 +1178,38 @@ export default function DashboardScreen({ onToast }) {
             </button>
           </div>
         )}
+        {Object.keys(views).length > 0 && (
+          <div className="pill-row" style={{ gap: 6 }}>
+            <span className="muted" style={{ fontSize: 12, fontWeight: 700, alignSelf: 'center' }}>Views:</span>
+            {Object.keys(views).map((name) => (
+              <span key={name} style={{ display: 'inline-flex', gap: 2, alignItems: 'center' }}>
+                <button type="button" className="chip" onClick={() => applyView(name)} title="Apply this saved view">
+                  {name}
+                </button>
+                <button
+                  type="button"
+                  className="chip"
+                  title="Delete this view"
+                  onClick={() => deleteView(name)}
+                  style={{ color: '#b91c1c' }}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            value={viewName}
+            placeholder="Save current filters as…"
+            onChange={(e) => setViewName(e.target.value)}
+            style={{ flex: 1, minWidth: 180, minHeight: 38, fontSize: 13, border: '1.5px solid #cbd5e1', borderRadius: 8, padding: '0 10px' }}
+          />
+          <button type="button" className="btn small" onClick={saveView} disabled={!viewName.trim()}>
+            💾 Save view
+          </button>
+        </div>
         {filtersBroken && (
           <div className="banner error" role="alert">
             Filters did not apply. Redeploy Deno API if this persists.
