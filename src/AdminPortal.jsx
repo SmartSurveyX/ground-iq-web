@@ -317,7 +317,8 @@ function Overview({ user, stats, onNav, superAdminOnly = false, canPage = () => 
         <SetupChecklist
           surveys={surveyBreak}
           surveyorCount={surveyorCount}
-          stats={stats}
+          confirmed={confirmedTotal}
+          rejected={rejectedTotal}
           onNav={onNav}
         />
       )}

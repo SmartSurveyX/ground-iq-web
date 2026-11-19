@@ -6,20 +6,21 @@ import { useMemo } from 'react'
  * Progress comes from live data, not localStorage — the steps stay honest.
  * Hidden once every step is done (the admin has onboarded).
  */
-export default function SetupChecklist({ surveys = [], surveyorCount = 0, stats = {}, onNav }) {
+export default function SetupChecklist({ surveys = [], surveyorCount = 0, confirmed = 0, rejected = 0, onNav }) {
   const steps = useMemo(() => {
     const hasLiveLink = surveys.some((s) => {
       const l = s.web_link
       return l && !l.expired && !l.deactivated && !s.ended
     })
-    const confirmed = Number(stats?.field_confirmed || 0)
+    // Any review action counts — field AND web records (web fills confirm in QA too)
+    const reviewed = Number(confirmed || 0) + Number(rejected || 0)
     return [
       { id: 'survey', label: 'Create your first survey', hint: 'Surveys & Forms → + New Survey', done: surveys.length > 0, page: 'surveys' },
       { id: 'team', label: 'Add surveyors', hint: 'Surveyors & Quotas → + Add surveyors', done: Number(surveyorCount) > 0, page: 'users' },
       { id: 'share', label: 'Share a survey link (or QR)', hint: 'Open the survey → Share tab → generate link', done: hasLiveLink, page: 'surveys' },
-      { id: 'review', label: 'Review your first records', hint: 'Review QA → Confirm or Reject', done: confirmed > 0, page: 'review' },
+      { id: 'review', label: 'Review your first records', hint: 'Review QA → Confirm or Reject', done: reviewed > 0, page: 'review' },
     ]
-  }, [surveys, surveyorCount, stats])
+  }, [surveys, surveyorCount, confirmed, rejected])
 
   const doneCount = steps.filter((s) => s.done).length
   if (doneCount === steps.length) return null
