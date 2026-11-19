@@ -25,6 +25,8 @@ import VerifiedBadge from './VerifiedBadge'
 import { PortalEmpty, PortalSkeleton } from './PortalUI'
 import { claimReload, isChunkLoadError, reloadSoon, hardReload } from './reloadGuard'
 import AdminBell from './AdminBell'
+import SetupChecklist from './components/SetupChecklist'
+import QuotaLine from './components/QuotaLine'
 import useIdleTimeout from './hooks/useIdleTimeout'
 import { useIsNarrow } from './hooks/useIsNarrow'
 import './App.css'
@@ -603,26 +605,18 @@ function Overview({ user, stats, onNav, superAdminOnly = false, canPage = () => 
                   Field and web fills per survey · web share turns off when that survey’s target is reached
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <div style={{ padding: '6px 12px', borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#64748b', display: 'block', fontWeight: 600 }}>Allocated</span>
-                  <strong style={{ fontSize: 14, color: '#0f172a' }}>{allotCap.toLocaleString()}</strong>
-                </div>
-                <div style={{ padding: '6px 12px', borderRadius: 8, background: '#eff6ff', border: '1px solid #bfdbfe', textAlign: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#1d4ed8', display: 'block', fontWeight: 600 }}>Allocated for Web</span>
-                  <strong style={{ fontSize: 14, color: '#1e40af' }}>{webReserved.toLocaleString()}</strong>
-                </div>
-                <div style={{ padding: '6px 12px', borderRadius: 8, background: '#eef3fb', border: '1px solid #bfdbfe', textAlign: 'center' }}>
-                  <span style={{ fontSize: 11, color: '#3f6cbe', display: 'block', fontWeight: 600 }}>Remaining for Field</span>
-                  <strong style={{ fontSize: 14, color: '#223f75' }}>{fieldLeft != null ? fieldLeft.toLocaleString() : '0'}</strong>
-                </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <QuotaLine
+                  fieldUsed={Number(fieldUsed) || 0}
+                  cap={Number(allotCap) || 0}
+                  webReserved={Number(webReserved) || 0}
+                />
                 <div style={{ padding: '6px 12px', borderRadius: 8, background: rejectedTotal > 0 ? '#fef2f2' : '#f8fafc', border: `1px solid ${rejectedTotal > 0 ? '#fecaca' : '#e2e8f0'}`, textAlign: 'center' }}>
                   <span style={{ fontSize: 11, color: rejectedTotal > 0 ? '#b91c1c' : '#64748b', display: 'block', fontWeight: 600 }}>Rejected</span>
                   <strong style={{ fontSize: 14, color: rejectedTotal > 0 ? '#dc2626' : '#0f172a' }}>{rejectedTotal.toLocaleString()}</strong>
                 </div>
               </div>
             </div>
-
             <table className="mini-table" style={{ width: '100%' }}>
               <thead>
                 <tr>

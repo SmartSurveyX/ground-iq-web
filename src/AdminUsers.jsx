@@ -30,6 +30,7 @@ import ProfilePhoto from './components/ProfilePhoto'
 import { digits10, isValidInMobile, toE164In, formatInMobile } from './phoneIn'
 import { compressImageFile } from './mediaOptimize'
 import { PortalSkeleton } from './PortalUI'
+import QuotaLine from './components/QuotaLine'
 
 function formatIstStamp(v) {
   if (!v) return ''
@@ -1681,6 +1682,7 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
               Default target per survey
               {allotCap > 0 ? ` (${allotLeft?.toLocaleString?.()} field remaining of ${allotCap.toLocaleString()})` : ''}
             </span>
+            <QuotaLine fieldUsed={Number(fieldUsed) || 0} cap={Number(allotCap) || 0} webReserved={Number(webReserved) || 0} style={{ marginBottom: 6 }} />
             <input
               type="number"
               min={0}
