@@ -191,7 +191,7 @@ function Pill({ label, color = '#64748b', bg = '#f1f5f9', dot }) {
 }
 
 /* ─── per-survey card ─────────────────────────────────────────── */
-function SurveyWebCard({ survey, onToast, expanded, onToggle, canDeactivate, reloadAt, onDeactivated }) {
+export function SurveyWebCard({ survey, onToast, expanded, onToggle, canDeactivate, reloadAt, onDeactivated }) {
   const [link, setLink] = useState(null)       // { token, max_uses, use_count, expired }
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)

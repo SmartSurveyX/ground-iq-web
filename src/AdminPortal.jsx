@@ -322,7 +322,14 @@ function Overview({ user, stats, onNav, superAdminOnly = false, canPage = () => 
         </div>
       </header>
 
-      {!isSuper && <ShareAppLink onToast={onToast} />}
+      {!isSuper && (
+        <SetupChecklist
+          surveys={surveyBreak}
+          surveyorCount={surveyorCount}
+          stats={stats}
+          onNav={onNav}
+        />
+      )}
 
       {/* KPI tiles — Mock 3 style with Total Allocations and Rejected */}
       <div className="portal-kpi-grid">

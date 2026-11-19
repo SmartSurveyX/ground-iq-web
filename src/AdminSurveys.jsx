@@ -15,6 +15,7 @@ import {
 } from './api'
 import CopyWebFillLink from './components/CopyWebFillLink'
 import { CategoryField, CategoryPanel } from './QuestionCategory'
+import { SurveyWebCard } from './AdminWebSurvey'
 import QuestionTelugu, { fillTeluguFromEnglish } from './QuestionTelugu'
 import { PortalSkeleton } from './PortalUI'
 import {
@@ -395,6 +396,7 @@ export default function AdminSurveysScreen({ onToast, user }) {
   const Units = isSuper ? 'Projects' : 'Surveys'
 
   const [mode, setMode] = useState('list') // list | create | detail
+  const [detailTab, setDetailTab] = useState('overview') // overview | questions | share
   const [surveys, setSurveys] = useState([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -480,6 +482,7 @@ export default function AdminSurveysScreen({ onToast, user }) {
   }, [newTitle, surveys])
 
   async function openDetail(id) {
+    setDetailTab('overview')
     setBusy(true)
     try {
       const d = await getSurvey(id)
@@ -919,6 +922,7 @@ export default function AdminSurveysScreen({ onToast, user }) {
       (detail.admins || []).find((a) => Number(a.id) === Number(detail.owner_id))?.company_name ||
       null
     const liveFrozen = isFrozenSurvey(detail)
+    const hide = (t) => (detailTab === t ? undefined : { display: 'none' })
     return (
       <div className="screen">
         <header className="screen-head">
@@ -927,6 +931,13 @@ export default function AdminSurveysScreen({ onToast, user }) {
             ← Back
           </button>
         </header>
+        <div className="admin-subtabs" style={{ marginBottom: 10 }}>
+          <button type="button" className={detailTab === 'overview' ? 'map-tab active' : 'map-tab'} onClick={() => setDetailTab('overview')}>Overview</button>
+          <button type="button" className={detailTab === 'questions' ? 'map-tab active' : 'map-tab'} onClick={() => setDetailTab('questions')}>Questions</button>
+          {detail.form_key && detail.form_key !== 'default' && detail.form_key !== 'legacy' && (isSuper || user?.role === 'admin' || !!user?.can_web_survey) && (
+            <button type="button" className={detailTab === 'share' ? 'map-tab active' : 'map-tab'} onClick={() => setDetailTab('share')}>Share</button>
+          )}
+        </div>
         {liveFrozen && (
           <div className="card" style={{ marginBottom: 12, padding: 12, background: detail.ended ? '#f8fafc' : '#f0fdf4', border: `1.5px solid ${detail.ended ? '#cbd5e1' : '#86efac'}` }}>
             <strong style={{ color: detail.ended ? '#334155' : '#15803d' }}>
@@ -960,7 +971,7 @@ export default function AdminSurveysScreen({ onToast, user }) {
           <h3 style={{ margin: '4px 0 8px', fontSize: 20, color: '#0f172a', fontWeight: 'bold' }}>
             {detail.title}
           </h3>
-          {(isSuper || user?.role === 'admin' || !!user?.can_web_survey) && detail.form_key && detail.form_key !== 'default' && detail.form_key !== 'legacy' ? (
+          {detailTab === 'share' && (isSuper || user?.role === 'admin' || !!user?.can_web_survey) && detail.form_key && detail.form_key !== 'default' && detail.form_key !== 'legacy' ? (
             <CopyWebFillLink formKey={detail.form_key} title={detail.title} onToast={onToast} />
           ) : null}
           {user?.role === 'super_admin' && (
@@ -983,8 +994,28 @@ export default function AdminSurveysScreen({ onToast, user }) {
                 ? (detail.surveyors || []).map((s) => s.username || s.name).join(', ')
                 : 'None yet — assign from Surveyors → open their profile'}</>}
           </p>
+        {detailTab === 'share' && (
+          <SurveyWebCard
+            survey={{ id: detail.id, title: detail.title, form_key: detail.form_key, web_link: detail.web_link }}
+            onToast={onToast}
+            expanded
+            canDeactivate={isSuper}
+            onDeactivated={() => setDetailTab('share')}
+          />
+        )}
         </div>
 
+        {detailTab === 'share' && (
+          <SurveyWebCard
+            survey={{ id: detail.id, title: detail.title, form_key: detail.form_key, web_link: detail.web_link }}
+            onToast={onToast}
+            expanded
+            canDeactivate={isSuper}
+            onDeactivated={() => setDetailTab('share')}
+          />
+        )}
+
+        <div style={{ display: detailTab === 'overview' ? undefined : 'none' }}>
         <h3 style={{ fontSize: 14, margin: '14px 0 6px', display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="building" size={14} /> Client Admins connected to this project</h3>
         <div className="card" style={{ marginBottom: 12, padding: 12 }}>
           {user?.role === 'super_admin' ? (
@@ -1104,7 +1135,8 @@ export default function AdminSurveysScreen({ onToast, user }) {
         </p>
 
         <h3 style={{ fontSize: 14, margin: '14px 0 6px' }}>Survey questions</h3>
-        <div className="card" style={{ marginBottom: 12, padding: 14 }}>
+                </div>
+<div className="card" style={{ marginBottom: 12, padding: 14, display: hide('overview') }}>
           <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>
             Display language (phone, dashboard, export)
           </p>
@@ -1134,7 +1166,7 @@ export default function AdminSurveysScreen({ onToast, user }) {
             ))}
           </div>
         </div>
-        <div className="card" style={{ marginBottom: 12, padding: 14 }}>
+        <div className="card" style={{ marginBottom: 12, padding: 14 , display: hide('overview') }}>
           <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>🎙 Voice recording configuration</p>
           <p className="muted" style={{ margin: '0 0 10px', fontSize: 12 }}>
             {isSuper
@@ -1194,8 +1226,9 @@ export default function AdminSurveysScreen({ onToast, user }) {
           )}
         </div>
 
-        {!liveFrozen && <CategoryPanel onToast={onToast} />}
+        {detailTab === 'overview' && !liveFrozen && <CategoryPanel onToast={onToast} />}
 
+        {detailTab === 'questions' && (
         <QuestionEditor
           questions={detail.questions || []}
           onChange={(qs) => setDetail({ ...detail, questions: qs })}
@@ -1208,7 +1241,9 @@ export default function AdminSurveysScreen({ onToast, user }) {
             .reduce((sum, s) => sum + (Number(s.question_count) || 0), 0)}
           frozen={liveFrozen}
         />
+        )}
 
+        <div style={{ display: detailTab === 'share' ? 'none' : undefined }}>
         <button
           type="button"
           className="btn primary"
@@ -1230,6 +1265,7 @@ export default function AdminSurveysScreen({ onToast, user }) {
         >
           Delete project
         </button>
+        </div>
       </div>
     )
   }
