@@ -69,6 +69,10 @@ export async function warmAnalyticsCache(): Promise<void> {
       const meId = Number(key.slice(0, sep));
       const search = key.slice(sep + 1);
       if (!Number.isFinite(meId) || meId <= 0 || !search) continue;
+      // Never warm a grouped key (group_by=kpi / geo / …): the warm-up rebuilds
+      // the full analytics body, whose shape differs, and would poison the
+      // cache with missing pending/confirmed/submissions/districts fields.
+      if (/[?&]group_by=/.test(search)) continue;
       const [u] = (await sql`
           SELECT id, role, created_by FROM app_users
           WHERE id = ${meId} AND active = TRUE LIMIT 1
@@ -102,16 +106,21 @@ export async function handleAnalytics(c: Ctx): Promise<Response | null> {
     if (!me) return json({ error: "Login required" }, 401);
     if (!isPortalAdmin(me.role)) return json({ error: "Admin only" }, 403);
 
-    // Check cache first — same admin + same filters = same result
+    const groupBy = (url.searchParams.get("group_by") || "").trim().toLowerCase();
+
+    // Check cache first — same admin + same filters = same result.
+    // ONLY the ungrouped full-analytics build is cachable: grouped requests
+    // (kpi / geo / …) return a completely different JSON shape, so serving a
+    // full-analytics body for them makes the portal KPIs read 0.
+    const cacheable = !groupBy;
     const key = cacheKey(me.id, url.search);
     noteRecentKey(key);
-    const cached = analyticsCache.get(key);
+    const cached = cacheable ? analyticsCache.get(key) : undefined;
     if (cached && cached.expires > Date.now()) {
       return json(cached.body);
     }
     sweepAnalyticsCache();
 
-    const groupBy = (url.searchParams.get("group_by") || "").trim().toLowerCase();
     const envScope = await adminFormKeyScope(sql, me);
 
     // KPI group (formerly /api/stats)
@@ -452,7 +461,9 @@ export async function handleAnalytics(c: Ctx): Promise<Response | null> {
       },
     };
     // Cache the expensive full-analytics result for repeat requests
-    analyticsCache.set(key, { body, expires: Date.now() + ANALYTICS_CACHE_TTL_MS });
+    if (cacheable) {
+      analyticsCache.set(key, { body, expires: Date.now() + ANALYTICS_CACHE_TTL_MS });
+    }
     return json(body);
   }
   return null;
