@@ -329,6 +329,37 @@ function SurveySelect({
   )
 }
 
+function genPassword() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+  const arr = new Uint8Array(12)
+  crypto.getRandomValues(arr)
+  let out = ''
+  for (const b of arr) out += chars[b % chars.length]
+  return out
+}
+
+function downloadCredentialsCsv(list) {
+  const esc = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"'
+  const lines = ['Name,Username,Password,Phone']
+  for (const u of list) {
+    lines.push([esc(u.name || u.username), esc(u.username), esc(u.password), esc(u.phone || '')].join(','))
+  }
+  const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = 'surveyor-credentials.csv'
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+function whatsappCredentials(list) {
+  const text = list
+    .slice(0, 10)
+    .map((u) => `${u.name || u.username}: ${u.username} / ${u.password}`)
+    .join('\n')
+  window.open('https://wa.me/?text=' + encodeURIComponent('Smart Survey X app logins:\n' + text), '_blank')
+}
+
 export default function AdminUsersScreen({ onToast, user: portalUser, focusUserId, onFocusConsumed }) {
   const [users, setUsers] = useState([])
   const [board, setBoard] = useState(null)
@@ -355,7 +386,7 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
   const [gen, setGen] = useState({
     count: 10,
     prefix: 's',
-    password: 'survey123',
+    password: '', // auto-generated when the add panel opens
     target_quota: 20,
     surveys: [],
     surveyQuotas: {},
@@ -374,7 +405,7 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
     surveyQuotas: {},
   })
   const [allSurveys, setAllSurveys] = useState([])
-  const [tab, setTab] = useState('create') // create | bulk | profiles
+  const [tab, setTab] = useState('profiles') // profiles | create | bulk (add panel)
   const [profileUser, setProfileUser] = useState(null)
   const [profileData, setProfileData] = useState(null)
   const [profileLoading, setProfileLoading] = useState(false)
@@ -751,6 +782,7 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
             username: loginName,
             password: typedPass,
             name: displayName,
+            phone: typedPhone,
             target_quota: created.target_quota ?? typedQuota,
             id: created.id,
           },
@@ -1513,29 +1545,43 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
         </div>
       )}
 
-        <div className="admin-subtabs">
-        <button
-          type="button"
-          className={tab === 'create' ? 'map-tab active' : 'map-tab'}
-          onClick={() => setTab('create')}
-        >
-          1 · Create surveyor
-        </button>
-        <button
-          type="button"
-          className={tab === 'bulk' ? 'map-tab active' : 'map-tab'}
-          onClick={() => setTab('bulk')}
-        >
-          2 · Bulk create
-        </button>
-        <button
-          type="button"
-          className={tab === 'profiles' ? 'map-tab active' : 'map-tab'}
-          onClick={() => setTab('profiles')}
-        >
-          3 · Surveyor profiles
-        </button>
-      </div>
+        <div className="card" style={{ marginBottom: 14, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: 14, flexShrink: 0 }}>
+            {tab === 'profiles' ? `Surveyors (${surveyorRows.length})` : 'Add surveyors'}
+          </strong>
+          <span className="muted" style={{ fontSize: 12, flex: 1 }}>
+            Passwords are auto-generated — copy or download the sheet after creating.
+          </span>
+          {tab !== 'profiles' && (
+            <>
+              <button
+                type="button"
+                className={tab === 'create' ? 'btn small primary' : 'btn small'}
+                onClick={() => { setTab('create'); if (!form.password) setForm((f) => ({ ...f, password: genPassword() })) }}
+              >
+                Single
+              </button>
+              <button
+                type="button"
+                className={tab === 'bulk' ? 'btn small primary' : 'btn small'}
+                onClick={() => { setTab('bulk'); setGen((g) => ({ ...g, password: g.password === 'survey123' ? genPassword() : g.password })) }}
+              >
+                Bulk
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            className={tab === 'profiles' ? 'btn primary' : 'btn'}
+            onClick={() => {
+              const next = tab === 'profiles' ? 'create' : 'profiles'
+              if (next === 'create' && !form.password) setForm((f) => ({ ...f, password: genPassword() }))
+              setTab(next)
+            }}
+          >
+            {tab === 'profiles' ? '＋ Add surveyors' : '✕ Close'}
+          </button>
+        </div>
 
       <div className="card" style={{ marginBottom: 14, padding: '12px 14px' }}>
         <p style={{ margin: 0, fontSize: 13 }}>
@@ -1739,6 +1785,12 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
               }}
             >
               Copy download link
+            </button>
+            <button type="button" className="btn" onClick={() => downloadCredentialsCsv(lastGenerated)}>
+              ⬇ Credentials sheet
+            </button>
+            <button type="button" className="btn" onClick={() => whatsappCredentials(lastGenerated)}>
+              WhatsApp ↗
             </button>
           </div>
           <ul className="user-list">
