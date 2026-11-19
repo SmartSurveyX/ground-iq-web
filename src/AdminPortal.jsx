@@ -1254,8 +1254,10 @@ export default function AdminPortal({ superAdminOnly = false }) {
   }, [])
 
   /** Manual refresh: stats + session */
+  const [loadingData, setLoadingData] = useState(false)
   const loadPortal = useCallback(async () => {
     if (!getToken()) return
+    setLoadingData(true)
     try {
       const meRes = await me().catch(() => null)
       if (meRes?.user) setUser(meRes.user)
@@ -1267,6 +1269,8 @@ export default function AdminPortal({ superAdminOnly = false }) {
         return
       }
       notify(e.message || 'Refresh failed', 'error')
+    } finally {
+      setLoadingData(false)
     }
   }, [loadStats, notify, handleLogout])
 
