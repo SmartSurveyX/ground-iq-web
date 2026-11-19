@@ -13,6 +13,7 @@ import {
   updateUser,
 } from './api'
 import VerifiedBadge from './VerifiedBadge'
+import { applyPreset, detectPreset, PresetPicker } from './components/PowerPresets'
 import { PortalSkeleton } from './PortalUI'
 
 /**
@@ -714,6 +715,20 @@ export default function AdminClientAdminsScreen({ onToast }) {
                       >
                         Uncheck all
                       </button>
+                    </div>
+                    <div style={{ margin: '10px 0 4px' }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 6 }}>
+                        Role presets — apply, then fine-tune below
+                      </div>
+                      <PresetPicker
+                        compact
+                        preset={detectPreset(draftPowers(u))}
+                        powers={draftPowers(u)}
+                        onPreset={(pid) => {
+                          const allTrue = Object.fromEntries(POWER_DEFS.map((p) => [p.key, true]))
+                          setPowerDrafts((d) => ({ ...d, [uid(u)]: applyPreset(pid, allTrue) }))
+                        }}
+                      />
                     </div>
                     <div
                       style={{

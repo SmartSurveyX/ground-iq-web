@@ -9,6 +9,7 @@ import {
   updateUser,
 } from './api'
 import { POWER_DEFS } from './AdminClientAdmins'
+import { applyPreset, detectPreset, PresetPicker } from './components/PowerPresets'
 import { PortalSkeleton } from './PortalUI'
 
 /**
@@ -28,6 +29,7 @@ function initialsOf(name) {
 }
 
 const EMPTY_FORM = { username: '', name: '', phone: '', email: '', password: '' }
+const VIEWER_POWERS = Object.fromEntries(POWER_DEFS.map((p) => [p.key, false]))
 
 export default function AdminSubAdminsScreen({ onToast }) {
   const me = useMemo(() => getStoredUser() || {}, [])
@@ -36,12 +38,10 @@ export default function AdminSubAdminsScreen({ onToast }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
-  const [formPowers, setFormPowers] = useState(() => {
-    // Default: the Client Admin's own powers ("same like" delegation)
-    const o = {}
-    for (const p of POWER_DEFS) o[p.key] = !!me[p.key]
-    return o
-  })
+  // Least-privilege default: Viewer. Presets raise from there (clamped to
+  // the Client Admin's own powers — the server re-clamps anyway).
+  const [formPreset, setFormPreset] = useState('viewer')
+  const [formPowers, setFormPowers] = useState(() => ({ ...VIEWER_POWERS }))
   const [drafts, setDrafts] = useState({})   // userId -> powers draft
   const [created, setCreated] = useState(null)
   const [openId, setOpenId] = useState(null)
@@ -67,9 +67,20 @@ export default function AdminSubAdminsScreen({ onToast }) {
 
   const myPowers = (key) => !!me[key]
 
+  const maxPowers = useMemo(() => {
+    const o = {}
+    for (const p of POWER_DEFS) o[p.key] = !!me[p.key]
+    return o
+  }, [me])
+
+  const applyFormPreset = (id) => {
+    setFormPreset(id)
+    setFormPowers(applyPreset(id, maxPowers))
+  }
   const toggleFormPower = (key) => {
     // A Client Admin can only delegate powers they hold themselves
     if (!myPowers(key)) return
+    if (formPreset !== 'custom') setFormPreset('custom')
     setFormPowers((p) => ({ ...p, [key]: !p[key] }))
   }
 
@@ -246,31 +257,15 @@ export default function AdminSubAdminsScreen({ onToast }) {
           />
         </div>
         <div style={{ fontSize: 12, fontWeight: 700, color: '#334155', margin: '12px 0 6px' }}>
-          Powers (defaults to your own; you can only delegate what you have)
+          Powers — pick a role preset (you can only delegate what you have)
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {POWER_DEFS.map((p) => {
-            const locked = !myPowers(p.key)
-            return (
-              <button
-                key={p.key}
-                type="button"
-                title={locked ? `${p.label} — you do not have this power yourself` : p.hint}
-                onClick={() => toggleFormPower(p.key)}
-                style={{
-                  fontSize: 12, fontWeight: 700, padding: '6px 10px', borderRadius: 99,
-                  cursor: locked ? 'not-allowed' : 'pointer',
-                  border: '1px solid ' + (formPowers[p.key] ? '#4f7dc6' : '#e2e8f0'),
-                  background: formPowers[p.key] ? '#eef4fb' : '#f8fafc',
-                  color: locked ? '#94a3b8' : formPowers[p.key] ? '#1f4e9c' : '#475569',
-                  opacity: locked ? 0.55 : 1,
-                }}
-              >
-                {p.icon} {p.label}
-              </button>
-            )
-          })}
-        </div>
+        <PresetPicker
+          preset={formPreset}
+          powers={formPowers}
+          maxPowers={maxPowers}
+          onPreset={applyFormPreset}
+          onTogglePower={toggleFormPower}
+        />
         <button
           type="submit"
           className="btn primary"

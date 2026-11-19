@@ -125,6 +125,7 @@ const PAGE_LABELS = {
 const PAGE_POWER = {
   charts: 'can_excel_charts',
   conversations: 'can_converse',
+  web: 'can_web_survey',
 }
 
 
@@ -1195,7 +1196,13 @@ export default function AdminPortal({ superAdminOnly = false }) {
       return
     }
     if (!canPage(pageId)) {
-      notify('You do not have access to that page', 'error')
+      const power = PAGE_POWER[pageId]
+      notify(
+        power
+          ? `🔒 Ask your Client Admin to grant you: ${PAGE_LABELS[pageId] || pageId}`
+          : 'You do not have access to that page',
+        'error',
+      )
       setPage('overview')
       setDeepLink(null)
       setNavOpen(false)
@@ -1584,9 +1591,12 @@ export default function AdminPortal({ superAdminOnly = false }) {
             <button className={`side-sub ${page === 'subadmins' ? 'active' : ''}`} onClick={() => goPage('subadmins')}><Icon name="shield" size={18} />Sub Admins</button>
           )}
           <button className={`side-sub ${['surveys', 'questions', 'bank'].includes(page) ? 'active' : ''}`} onClick={() => goPage('surveys')}><Icon name="clipboard" size={18} />Surveys &amp; Forms</button>
-          {(isSuper || canPage('web')) && (
-            <button className={`side-sub ${page === 'web' ? 'active' : ''}`} onClick={() => goPage('web')}><Icon name="globe" size={18} />Web survey</button>
-          )}
+          <button
+            className={`side-sub ${page === 'web' ? 'active' : ''}`}
+            style={!canPage('web') ? { opacity: 0.45 } : undefined}
+            title={!canPage('web') ? 'Ask your Client Admin to grant you: Web survey' : undefined}
+            onClick={() => goPage('web')}
+          ><Icon name="globe" size={18} />Web survey</button>
           <button className={`side-sub ${page === 'profile' ? 'active' : ''}`} onClick={() => goPage('profile')}><Icon name="building" size={18} />Organization</button>
 
           {isSuper && (
@@ -1673,20 +1683,31 @@ export default function AdminPortal({ superAdminOnly = false }) {
       </aside>
 
       <main className="portal-main">
-        {nav.filter((n) => n.pages.length > 1 && n.pages.includes(page)).map((n) => (
-          <div className="portal-subtabs" key={n.id}>
-            {n.pages.map((p) => (
-              <button
-                key={p}
-                type="button"
-                className={page === p ? 'portal-subtab active' : 'portal-subtab'}
-                onClick={() => goPage(p)}
-              >
-                {PAGE_LABELS[p]}
-              </button>
-            ))}
-          </div>
-        ))}
+        {nav.filter((n) => {
+          const full = (baseNav.find((b) => b.id === n.id)?.pages) || n.pages
+          return full.length > 1 && (n.pages.includes(page) || full.includes(page))
+        }).map((n) => {
+          const full = (baseNav.find((b) => b.id === n.id)?.pages) || n.pages
+          return (
+            <div className="portal-subtabs" key={n.id}>
+              {full.map((p) => {
+                const allowed = canPage(p)
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    className={page === p ? 'portal-subtab active' : 'portal-subtab'}
+                    style={!allowed ? { opacity: 0.45 } : undefined}
+                    title={!allowed ? 'Ask your Client Admin to grant you: ' + (PAGE_LABELS[p] || p) : undefined}
+                    onClick={() => goPage(p)}
+                  >
+                    {!allowed ? '🔒 ' : ''}{PAGE_LABELS[p]}
+                  </button>
+                )
+              })}
+            </div>
+          )
+        })}
         <Suspense fallback={<PortalSkeleton rows={6} label="Loading screen…" />}>
           <ChunkErrorBoundary>
           {(page === 'overview' || !canPage(page) || !PAGE_LABELS[page]) && (
