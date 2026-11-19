@@ -673,6 +673,15 @@ export default function DashboardScreen({ onToast }) {
   const [tableTab, setTableTab] = useState('day')
   const [filterLang, setFilterLang] = useState(getDisplayLang)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [views, setViews] = useState(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('esurvey_analyze_views') || '{}')
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  })
+  const [viewName, setViewName] = useState('')
 
   const setFilterLangPersist = useCallback((lang) => {
     setFilterLang(setDisplayLang(lang))

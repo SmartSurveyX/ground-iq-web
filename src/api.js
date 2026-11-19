@@ -1005,6 +1005,8 @@ export async function fetchMediaBlobUrl(pathOrUrl) {
   if (/^https?:\/\//i.test(pathOrUrl) && !pathOrUrl.includes('/api/media/')) {
     return pathOrUrl
   }
+  const base = getApiBase()
+  let path = pathOrUrl
   const mediaMatch = pathOrUrl.match(/\/api\/media\/(\d+)\/file/)
   if (mediaMatch) {
     // Bytes here are for zips/export. Always ask the API for the proxy

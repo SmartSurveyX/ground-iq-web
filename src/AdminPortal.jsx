@@ -1167,7 +1167,6 @@ export default function AdminPortal({ superAdminOnly = false }) {
     await logout()
     setUser(null)
     setStats(null)
-    setItems([])
     setSurveys([])
     setPage('overview')
     notify('Logged out', 'ok')
@@ -1182,7 +1181,6 @@ export default function AdminPortal({ superAdminOnly = false }) {
     await logout()
     setUser(null)
     setStats(null)
-    setItems([])
     setSurveys([])
     setPage('overview')
     notify('Logged out due to 30 minutes of inactivity', 'error')
@@ -1209,8 +1207,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
       clearSession()
       setUser(null)
       setStats(null)
-      setItems([])
-      setSurveys([])
+        setSurveys([])
       setPage('overview')
       const msg = e?.detail?.error || 'Account updated or session expired — please sign in again'
       notify(msg, 'error')
@@ -1373,14 +1370,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
     if (surveys.length) return
     listSurveys()
       .then((d) => {
-        const items = d.items || []
-        setSurveys(items)
-        const real = items.filter((s) => {
-          const k = String(s?.form_key || '')
-          return k && k !== 'default' && k !== 'legacy'
-        })
-        const key = String((real[0] || items[0])?.form_key || '')
-        if (key) setSurveyFilter((cur) => cur || key)
+        setSurveys(d.items || [])
       })
       .catch((e) => console.warn('[portal] survey list failed', e))
   }, [user, authReady, page, surveys.length])
