@@ -17,7 +17,7 @@ import {
 import { PortalEmpty, PortalError, PortalSkeleton } from './PortalUI'
 import SubmissionEditor from './SubmissionEditor'
 import FeedCard from './components/FeedCard'
-import { computeFlags, FLAG_LABELS } from './components/reviewFlags'
+import { computeFlags, FLAG_LABELS, unflaggedIds } from './components/reviewFlags'
 import { getQuestionDisplayLabel, parseQuestionsArray, resolveAnswerValue, slugQuestionKey } from './questionKey'
 
 
@@ -56,16 +56,35 @@ export default function ReviewQAScreen({
   const [items, setItems] = useState([])
   const [flagFilter, setFlagFilter] = useState('attention') // attention | flagged | clean | all
   const flags = useMemo(() => computeFlags(items), [items])
+  // "attention" / "clean" are pending-only views; on Confirmed / Rejected lists fall back to all
+  const effectiveFilter =
+    (status === 'confirmed' || status === 'rejected') && (flagFilter === 'attention' || flagFilter === 'clean')
+      ? 'all'
+      : flagFilter
+  const flagCounts = useMemo(() => {
+    let attention = 0
+    let flagged = 0
+    let clean = 0
+    for (const it of items) {
+      const isFlagged = (flags.get(String(it.id)) || []).length > 0
+      if (isFlagged) flagged += 1
+      if (it.status === 'pending') {
+        if (isFlagged) attention += 1
+        else clean += 1
+      }
+    }
+    return { attention, flagged, clean }
+  }, [items, flags])
   const visibleItems = useMemo(() => {
-    if (flagFilter === 'all') return items
+    if (effectiveFilter === 'all') return items
     return items.filter((it) => {
       const f = flags.get(String(it.id)) || []
-      if (flagFilter === 'flagged') return f.length > 0
-      if (flagFilter === 'attention') return it.status === 'pending' && f.length > 0
-      if (flagFilter === 'clean') return it.status === 'pending' && f.length === 0
+      if (effectiveFilter === 'flagged') return f.length > 0
+      if (effectiveFilter === 'attention') return it.status === 'pending' && f.length > 0
+      if (effectiveFilter === 'clean') return it.status === 'pending' && f.length === 0
       return true
     })
-  }, [items, flags, flagFilter])
+  }, [items, flags, effectiveFilter])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busyId, setBusyId] = useState(null)
@@ -114,6 +133,11 @@ export default function ReviewQAScreen({
       onFocusConsumed?.()
       return
     }
+    // The target may be hidden by the flag filter; show everything first
+    if (flagFilter !== 'all') {
+      setFlagFilter('all')
+      return
+    }
     const idx = items.findIndex((it) => Number(it.id) === id)
     if (idx < 0) {
       const wantSrc = String(focusSource || '').toLowerCase()
@@ -152,6 +176,7 @@ export default function ReviewQAScreen({
     focusSubmissionId,
     focusSource,
     loading,
+    flagFilter,
     items,
     status,
     source,
@@ -321,7 +346,7 @@ export default function ReviewQAScreen({
         setBusyId(null)
       }
     },
-    [load, onToast],
+    [canReview, load, onToast],
   )
 
   const deleteRejected = useCallback(
@@ -412,27 +437,38 @@ export default function ReviewQAScreen({
       onToast?.('Super Admin has not granted your account data-verification rights', 'error')
       return
     }
+    const unflagged = unflaggedIds(
+      items.filter((it) => it.status === 'pending'),
+      flags,
+    ).map(Number)
+    if (!unflagged.length) {
+      onToast?.('Every pending record is flagged — review them one by one.', 'error')
+      return
+    }
+    const flaggedLeft = flagCounts.attention
     if (
       !window.confirm(
-        'Confirm ALL pending surveys in the last batch? They will enter the analytics report.',
+        `Confirm ${unflagged.length} unflagged pending record(s)?` +
+          (flaggedLeft ? ` ${flaggedLeft} flagged record(s) stay pending for review.` : '') +
+          ' Confirmed records enter the analytics report.',
       )
     ) {
       return
     }
     setLoading(true)
     try {
-      const unflagged = items
-        .filter((it) => it.status === 'pending' && !(flags.get(String(it.id)) || []).length)
-        .map((it) => Number(it.id))
-      if (!unflagged.length) {
-        onToast?.('Every pending record is flagged — review them one by one.', 'error')
-        setLoading(false)
-        return
-      }
       const res = await confirmAllPending(500, 'bulk from Review (unflagged only)', unflagged)
-      onToast?.(`Confirmed ${res.confirmed || 0} surveys (flagged records excluded)`, 'ok')
-      setStatus('confirmed')
-      await load()
+      const n = res?.confirmed || 0
+      if (n > unflagged.length) {
+        // Safety net: the server ignored the id list and confirmed more than we asked for
+        onToast?.(
+          `Server confirmed ${n} records but only ${unflagged.length} were unflagged — check the confirm-pending API.`,
+          'error',
+        )
+      } else {
+        onToast?.(`Confirmed ${n} surveys (flagged records excluded)`, 'ok')
+      }
+      await load() // stay on Pending so the flagged records are right there to review
     } catch (e) {
       onToast?.(e.message, 'error')
     } finally {
@@ -481,9 +517,15 @@ export default function ReviewQAScreen({
         setEditingId(null)
       } else if (e.key === 'c' || e.key === 'C') {
         e.preventDefault()
-        if (item.status !== 'confirmed' && busyId !== item.id) {
-          void setStatusFor(item.id, 'confirmed')
+        if (item.status === 'confirmed' || busyId === item.id) return
+        const itemFlagList = flags.get(String(item.id)) || []
+        if (itemFlagList.length && expanded !== item.id) {
+          // Flagged: open it first so the flags are read, then c again confirms
+          setExpanded(item.id)
+          onToast?.('Flagged record — check the flags, then press c again to confirm', 'ok')
+          return
         }
+        void setStatusFor(item.id, 'confirmed')
       } else if (e.key === 'r' || e.key === 'R') {
         e.preventDefault()
         if (item.status !== 'rejected' && busyId !== item.id) {
@@ -497,7 +539,12 @@ export default function ReviewQAScreen({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [visibleItems, flags, focusIdx, busyId, setStatusFor])
+  }, [visibleItems, flags, focusIdx, busyId, setStatusFor, expanded, onToast])
+
+  // Keep the keyboard focus inside the visible (filtered) list
+  useEffect(() => {
+    setFocusIdx((i) => (visibleItems.length ? Math.min(i, visibleItems.length - 1) : 0))
+  }, [visibleItems.length])
 
   // Scroll focused row into view
   useEffect(() => {
@@ -541,20 +588,25 @@ export default function ReviewQAScreen({
         </div>
         <div className="chip-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
           {[
-            { id: 'attention', label: `⚠ Needs attention (${items.filter((it) => it.status === 'pending' && (flags.get(String(it.id)) || []).length > 0).length})` },
-            { id: 'flagged', label: `Flagged (${items.filter((it) => (flags.get(String(it.id)) || []).length > 0).length})` },
-            { id: 'clean', label: 'Clean' },
+            { id: 'attention', label: `⚠ Needs attention (${flagCounts.attention})`, pendingOnly: true },
+            { id: 'flagged', label: `Flagged (${flagCounts.flagged})` },
+            { id: 'clean', label: `Clean (${flagCounts.clean})`, pendingOnly: true },
             { id: 'all', label: 'All' },
-          ].map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              className={`chip ${flagFilter === f.id ? 'selected' : ''}`}
-              onClick={() => setFlagFilter(f.id)}
-            >
-              {f.label}
-            </button>
-          ))}
+          ]
+            .filter((f) => !f.pendingOnly || status === 'pending' || status === 'all')
+            .map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                className={`chip ${effectiveFilter === f.id ? 'selected' : ''}`}
+                onClick={() => {
+                  setFlagFilter(f.id)
+                  setFocusIdx(0)
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
         </div>
         {(isSuper || user?.role === 'admin' || !!user?.can_web_survey) && (
           <div className="chip-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
@@ -577,7 +629,7 @@ export default function ReviewQAScreen({
         <label className="field compact" style={{ marginTop: 10 }}>
           <span>By survey</span>
           <select value={survey} onChange={(e) => setSurvey(e.target.value)}>
-            {!survey && <option value="" disabled>Not filtered by survey</option>}
+            <option value="">All surveys</option>
             {surveys.map((s) => (
               <option key={s.id} value={s.form_key}>
                 {s.title}
@@ -591,9 +643,9 @@ export default function ReviewQAScreen({
             className="btn primary"
             style={{ marginTop: 12, width: '100%' }}
             onClick={bulkConfirm}
-            disabled={loading}
+            disabled={loading || flagCounts.clean === 0}
           >
-            Confirm all pending (batch)
+            Confirm all unflagged ({flagCounts.clean})
           </button>
         )}
         {status === 'rejected' && (
@@ -637,6 +689,12 @@ export default function ReviewQAScreen({
               ? 'Web fills appear here until confirmed. Copy a web link from Web survey.'
               : 'Field Send appears here as pending until you confirm. Use Web survey for public fills.'
             : 'Try another status filter or survey.'}
+        </PortalEmpty>
+      ) : !visibleItems.length ? (
+        <PortalEmpty title={effectiveFilter === 'attention' ? 'Nothing needs attention' : 'No records in this view'}>
+          {effectiveFilter === 'attention'
+            ? `No flagged pending records. ${flagCounts.clean} clean pending record(s) can be confirmed in one click.`
+            : 'Try another filter.'}
         </PortalEmpty>
       ) : (
         <ul className="user-list review-list" ref={listRef}>

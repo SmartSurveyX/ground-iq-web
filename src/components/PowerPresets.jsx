@@ -2,9 +2,10 @@ import { POWER_DEFS } from '../AdminClientAdmins'
 
 /**
  * Role presets for delegated Sub Client Admin accounts (least privilege).
- * Each preset maps to a subset of the 12 can_* powers; "custom" opens the
- * full toggle list. The server clamps every grant to what the creating
- * Client Admin holds themselves — presets can never exceed that.
+ * Each preset maps to a subset of the 12 can_* powers; "custom" keeps whatever
+ * is currently selected and opens the full toggle list. The server clamps every
+ * grant to what the creating Client Admin holds themselves — presets can never
+ * exceed that, and the UI clamps the same way so what you see is what is saved.
  */
 export const ROLE_PRESETS = [
   {
@@ -46,26 +47,43 @@ export const ROLE_PRESETS = [
 
 const PRESET_POWERS_KEY = '__preset'
 
-/** Which named preset (if any) matches a powers object exactly. */
-export function detectPreset(powers) {
+/** A preset's powers as they would actually be saved: limited to `maxPowers` if given. */
+function clampedPresetPowers(preset, maxPowers) {
+  const out = {}
+  for (const def of POWER_DEFS) {
+    const wanted = !!(preset.powers && preset.powers[def.key])
+    out[def.key] = maxPowers ? wanted && !!maxPowers[def.key] : wanted
+  }
+  return out
+}
+
+/**
+ * Which named preset (if any) matches a powers object exactly.
+ * Pass `maxPowers` so a preset the admin can only partly grant (clamped)
+ * is still recognised instead of falling back to "custom".
+ */
+export function detectPreset(powers = {}, maxPowers) {
   for (const p of ROLE_PRESETS) {
     if (!p.powers) continue
+    const expected = clampedPresetPowers(p, maxPowers)
     let match = true
     for (const def of POWER_DEFS) {
-      if (!!powers[def.key] !== !!p.powers[def.key]) { match = false; break }
+      if (!!powers[def.key] !== expected[def.key]) { match = false; break }
     }
     if (match) return p.id
   }
   return 'custom'
 }
 
-/** Apply a preset to a powers object, clamped to what `maxPowers` holds. */
-export function applyPreset(presetId, maxPowers = {}) {
+/**
+ * Apply a preset, clamped to what `maxPowers` holds.
+ * "custom" (and any unknown id) keeps `current` — it never grants everything.
+ */
+export function applyPreset(presetId, maxPowers = {}, current = {}) {
   const preset = ROLE_PRESETS.find((p) => p.id === presetId)
-  if (!preset) return { ...maxPowers }
   const out = {}
   for (const def of POWER_DEFS) {
-    const wanted = preset.powers ? !!preset.powers[def.key] : !!maxPowers[def.key]
+    const wanted = preset && preset.powers ? !!preset.powers[def.key] : !!current[def.key]
     out[def.key] = wanted && !!maxPowers[def.key]
   }
   return out
@@ -84,9 +102,21 @@ const chip = (active, locked) => ({
  * Preset picker: named presets + Custom (opens the 12 toggles).
  * Controlled: the parent owns `preset` and `powers` and re-renders us.
  * `maxPowers` = the granting admin's own powers (the clamp).
+ * `lockedKeys` = optional map of keys subject to the clamp; omit it and every
+ * power the granting admin does not hold is locked.
  */
-export function PresetPicker({ preset, powers, maxPowers = {}, lockedKeys = {}, onPreset, onTogglePower, compact = false }) {
-  const isLocked = (key) => !!lockedKeys[key] && !maxPowers[key]
+export function PresetPicker({ preset, powers = {}, maxPowers = {}, lockedKeys, onPreset, onTogglePower, compact = false }) {
+  const isLocked = (key) => (lockedKeys == null ? true : !!lockedKeys[key]) && !maxPowers[key]
+  const grantedCount = POWER_DEFS.filter((d) => !!powers[d.key]).length
+
+  const presetTitle = (p) => {
+    if (!p.powers) return p.hint
+    const missing = POWER_DEFS.filter((d) => p.powers[d.key] && !maxPowers[d.key])
+    return missing.length
+      ? `${p.hint} (limited — you do not hold: ${missing.map((d) => d.label).join(', ')})`
+      : p.hint
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -94,7 +124,8 @@ export function PresetPicker({ preset, powers, maxPowers = {}, lockedKeys = {}, 
           <button
             key={p.id}
             type="button"
-            title={p.hint}
+            title={presetTitle(p)}
+            aria-pressed={preset === p.id}
             onClick={() => onPreset?.(p.id)}
             style={chip(preset === p.id, false)}
           >
@@ -111,6 +142,8 @@ export function PresetPicker({ preset, powers, maxPowers = {}, lockedKeys = {}, 
               <button
                 key={def.key}
                 type="button"
+                disabled={locked}
+                aria-pressed={on}
                 title={locked
                   ? `${def.label} — you do not have this power yourself`
                   : `${def.label}: ${on ? 'granted' : 'not granted'}`}
@@ -123,9 +156,9 @@ export function PresetPicker({ preset, powers, maxPowers = {}, lockedKeys = {}, 
           })}
         </div>
       )}
-      {compact && preset === 'custom' && (
+      {compact && preset !== 'custom' && (
         <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
-          Custom power set — expand to review the 12 grants.
+          {grantedCount} of {POWER_DEFS.length} powers granted.
         </div>
       )}
     </div>
