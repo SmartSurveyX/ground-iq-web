@@ -1159,7 +1159,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
 
   const handleLogout = useCallback(async () => {
     try {
-      localStorage.removeItem('esurvey_last_active')
+      localStorage.removeItem(`esurvey_last_active_${String(user?.id ?? 'anon')}`)
       localStorage.removeItem('esurvey_idle_logged_out')
     } catch {
       /* ignore */
@@ -1175,6 +1175,8 @@ export default function AdminPortal({ superAdminOnly = false }) {
   const handleIdleLogout = useCallback(async () => {
     try {
       localStorage.setItem('esurvey_idle_logged_out', String(Date.now()))
+      // Drop the stale per-account stamp so the next login starts a fresh window
+      localStorage.removeItem(`esurvey_last_active_${String(user?.id ?? 'anon')}`)
     } catch {
       /* ignore */
     }
@@ -1402,7 +1404,8 @@ export default function AdminPortal({ superAdminOnly = false }) {
           onSuccess={(u) => {
             try {
               localStorage.removeItem('esurvey_idle_logged_out')
-              localStorage.setItem('esurvey_last_active', String(Date.now()))
+              // Fresh login → fresh 30-minute idle window for THIS account
+              localStorage.setItem(`esurvey_last_active_${String(u?.id ?? 'anon')}`, String(Date.now()))
             } catch {
               /* ignore */
             }

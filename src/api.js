@@ -1,6 +1,8 @@
 /** API client — production is the Oracle Cloud VPS host baked in below (Neon for data). */
 import { APP_VERSION, APP_VERSION_CODE } from './version'
 
+import { resetIdleStamp } from './hooks/useIdleTimeout'
+
 const TOKEN_KEY = 'esurvey_token'
 const USER_KEY = 'esurvey_user'
 const LEGACY_API_KEY = 'esurvey_api_base'
@@ -68,8 +70,15 @@ export function setSession(token, user) {
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token)
     else localStorage.removeItem(TOKEN_KEY)
-    if (user) localStorage.setItem(USER_KEY, JSON.stringify(user))
-    else localStorage.removeItem(USER_KEY)
+    if (user) {
+      localStorage.setItem(USER_KEY, JSON.stringify(user))
+      // Fresh login: restart the idle window for this account so a stale
+      // stamp from a previous (idle-logged-out) session can never
+      // auto-logout the new login on mount.
+      if (token) resetIdleStamp(user?.id ?? 'anon')
+    } else {
+      localStorage.removeItem(USER_KEY)
+    }
   } catch {
     /* ignore */
   }

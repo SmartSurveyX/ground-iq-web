@@ -70,7 +70,7 @@ export function useIdleTimeout({
     // Otherwise initialize or update the active timestamp
     lastActiveRef.current = prevActive && now - prevActive < timeoutMs ? prevActive : now
     try {
-      localStorage.setItem(LAST_ACTIVE_KEY, String(lastActiveRef.current))
+      localStorage.setItem(storageKey, String(lastActiveRef.current))
       localStorage.removeItem(IDLE_LOGOUT_EVENT_KEY)
     } catch {
       /* ignore */
@@ -79,7 +79,7 @@ export function useIdleTimeout({
     const checkIdle = () => {
       let storedTime = lastActiveRef.current
       try {
-        const stored = Number(localStorage.getItem(LAST_ACTIVE_KEY))
+        const stored = Number(localStorage.getItem(storageKey))
         if (stored && !Number.isNaN(stored)) {
           storedTime = Math.max(storedTime, stored)
         }
@@ -121,7 +121,7 @@ export function useIdleTimeout({
 
     // Sync across tabs
     const onStorage = (e) => {
-      if (e.key === LAST_ACTIVE_KEY && e.newValue) {
+      if (e.key === storageKey && e.newValue) {
         const val = Number(e.newValue)
         if (val && !Number.isNaN(val)) {
           lastActiveRef.current = Math.max(lastActiveRef.current, val)
@@ -143,7 +143,18 @@ export function useIdleTimeout({
       window.removeEventListener('focus', onVisibilityOrFocus)
       window.removeEventListener('storage', onStorage)
     }
-  }, [enabled, timeoutMs, recordActivity])
+  }, [enabled, timeoutMs, recordActivity, storageKey])
+}
+
+/** Reset the per-account idle stamp (call on fresh login) — a stale stamp
+ *  from a previous session must never auto-logout a new login. */
+export function resetIdleStamp(userId) {
+  try {
+    localStorage.setItem(`esurvey_last_active_${String(userId)}`, String(Date.now()))
+    localStorage.removeItem('esurvey_idle_logged_out')
+  } catch {
+    /* ignore */
+  }
 }
 
 export default useIdleTimeout
