@@ -25,6 +25,7 @@ import VerifiedBadge from './VerifiedBadge'
 import { PortalEmpty, PortalSkeleton } from './PortalUI'
 import { claimReload, isChunkLoadError, reloadSoon, hardReload } from './reloadGuard'
 import AdminBell from './AdminBell'
+import { fetchInboxCounts } from './AdminInbox'
 import SetupChecklist from './components/SetupChecklist'
 import QuotaLine from './components/QuotaLine'
 import useIdleTimeout from './hooks/useIdleTimeout'
@@ -47,6 +48,9 @@ const AdminQuestionBankScreen = lazy(() => import('./AdminQuestionBank'))
 const AdminSeatsScreen = lazy(() => import('./AdminSeats'))
 const AdminClientAdminsScreen = lazy(() => import('./AdminClientAdmins'))
 const AdminCompaniesScreen = lazy(() => import('./AdminCompanies'))
+const AdminClientsScreen = lazy(() => import('./AdminClients'))
+const AdminInboxScreen = lazy(() => import('./AdminInbox'))
+const AdminLogsScreen = lazy(() => import('./AdminLogs'))
 const AdminWebSurveyScreen = lazy(() => import('./AdminWebSurvey'))
 const AdminProfileScreen = lazy(() => import('./AdminProfile'))
 const AdminContactRequestsScreen = lazy(() => import('./AdminContactRequests'))
@@ -65,40 +69,29 @@ const NAV = [
   { id: 'profile', label: 'Organization', icon: 'building', pages: ['profile'] },
 ]
 
-const PLATFORM_NAV = {
-  id: 'platform',
-  label: 'Seats & Audit',
-  icon: 'star',
-  pages: ['audit', 'seats'],
-}
-
-const CLIENT_ADMINS_NAV = {
-  id: 'admins',
-  label: 'Client Admins',
+const CLIENTS_NAV = {
+  id: 'clients',
+  label: 'Clients',
   icon: 'shield',
-  pages: ['admins'],
+  pages: ['clients'],
 }
 
-const COMPANIES_NAV = {
-  id: 'companies',
-  label: 'Companies',
-  icon: 'building',
-  pages: ['companies'],
-}
-
-const CONTACT_NAV = {
-  id: 'contact',
-  label: 'Contact Requests',
+const INBOX_NAV = {
+  id: 'inbox',
+  label: 'Inbox',
   icon: 'phone',
-  pages: ['contact'],
+  pages: ['inbox'],
 }
 
-const ERRORS_NAV = {
-  id: 'errors',
-  label: 'Errors',
+const LOGS_NAV = {
+  id: 'logs',
+  label: 'Logs',
   icon: 'lock',
-  pages: ['errors'],
+  pages: ['logs'],
 }
+
+// Governance 5 -> 3 (WS7): old page ids land on the merged screens
+const LEGACY_PAGE = { companies: 'clients', admins: 'clients', contact: 'inbox', seats: 'inbox', errors: 'logs', audit: 'logs' }
 
 const PAGE_LABELS = {
   overview: 'Overview',
@@ -124,6 +117,9 @@ const PAGE_LABELS = {
   companies: 'Companies',
   contact: 'Contact Requests',
   errors: 'Errors',
+  clients: 'Clients',
+  inbox: 'Inbox',
+  logs: 'Logs',
 }
 
 // All standard survey management, analytics, export, review, and web survey screens are visible to Client Admin.
@@ -1104,7 +1100,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
     (p) => {
       if (isSuper) return p !== 'subadmins' // Super manages sub-admin seats via Client Admins
       if (user?.role === 'sub_client_admin' && p === 'subadmins') return false // only the Client Admin manages sub admins
-      if (['companies', 'admins', 'seats', 'audit'].includes(p)) return false
+      if (['clients', 'inbox', 'logs', 'companies', 'admins', 'seats', 'audit', 'contact', 'errors'].includes(p)) return false
       const need = PAGE_POWER[p]
       if (!need) return true
       const needs = Array.isArray(need) ? need : [need]
@@ -1117,7 +1113,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
   )
 
   const baseNav = isSuper
-    ? [...NAV, COMPANIES_NAV, CLIENT_ADMINS_NAV, CONTACT_NAV, ERRORS_NAV, PLATFORM_NAV]
+    ? [...NAV, CLIENTS_NAV, INBOX_NAV, LOGS_NAV]
     : NAV
   const nav = baseNav
     .map((n) => ({ ...n, pages: n.pages.filter(canPage) }))
@@ -1133,6 +1129,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
 
   const goPage = useCallback((p, extra = null) => {
     const src = typeof p === 'string' ? { page: p } : p && typeof p === 'object' ? p : null
+    if (src?.page && LEGACY_PAGE[src.page]) src.page = LEGACY_PAGE[src.page]
     const raw = src?.page
     const pageId = raw && PAGE_LABELS[raw] ? raw : null
     if (!pageId) {
@@ -1197,6 +1194,20 @@ export default function AdminPortal({ superAdminOnly = false }) {
     setPage('overview')
     notify('Logged out due to 5 minutes of inactivity', 'error')
   }, [notify])
+
+  const [inboxBadge, setInboxBadge] = useState(0)
+  useEffect(() => {
+    if (!isSuper || !authReady) return
+    let alive = true
+    const tick = () => {
+      void fetchInboxCounts()
+        .then((c) => { if (alive) setInboxBadge((c.contacts || 0) + (c.seats || 0)) })
+        .catch(() => {})
+    }
+    tick()
+    const t = setInterval(tick, 60_000)
+    return () => { alive = false; clearInterval(t) }
+  }, [isSuper, authReady])
 
   useIdleTimeout({
     onTimeout: handleIdleLogout,
@@ -1515,11 +1526,12 @@ export default function AdminPortal({ superAdminOnly = false }) {
           {isSuper && (
             <>
               <div className="side-section-label" style={{ marginTop: 14 }}>GOVERNANCE</div>
-              <button className={`side-sub ${page === 'companies' ? 'active' : ''}`} onClick={() => goPage('companies')}><Icon name="building" size={18} />Companies</button>
-              <button className={`side-sub ${page === 'admins' ? 'active' : ''}`} onClick={() => goPage('admins')}><Icon name="shield" size={18} />Client Admins</button>
-              <button className={`side-sub ${page === 'contact' ? 'active' : ''}`} onClick={() => goPage('contact')}><Icon name="phone" size={18} />Contact Requests</button>
-              <button className={`side-sub ${page === 'errors' ? 'active' : ''}`} onClick={() => goPage('errors')}><Icon name="lock" size={18} />Errors</button>
-              <button className={`side-sub ${page === 'audit' || page === 'seats' ? 'active' : ''}`} onClick={() => goPage('audit')}><Icon name="chair" size={18} />Seats &amp; Audit</button>
+              <button className={`side-sub ${page === 'clients' || page === 'companies' || page === 'admins' ? 'active' : ''}`} onClick={() => goPage('clients')}><Icon name="shield" size={18} />Clients</button>
+              <button
+                className={`side-sub ${page === 'inbox' || page === 'contact' || page === 'seats' ? 'active' : ''}`}
+                onClick={() => goPage('inbox')}
+              ><Icon name="phone" size={18} />Inbox{inboxBadge > 0 ? ` · ${inboxBadge}` : ''}</button>
+              <button className={`side-sub ${page === 'logs' || page === 'errors' || page === 'audit' ? 'active' : ''}`} onClick={() => goPage('logs')}><Icon name="lock" size={18} />Logs</button>
             </>
           )}
         </nav>
@@ -1682,21 +1694,17 @@ export default function AdminPortal({ superAdminOnly = false }) {
               onUserUpdated={(u) => setUser((prev) => ({ ...prev, ...u }))}
             />
           )}
-          {page === 'seats' && canPage('seats') && <AdminSeatsScreen onToast={notify} />}
-          {page === 'admins' && canPage('admins') && (
-            <AdminClientAdminsScreen onToast={notify} />
-          )}
           {page === 'subadmins' && canPage('subadmins') && (
             <AdminSubAdminsScreen onToast={notify} />
           )}
-          {page === 'contact' && canPage('contact') && (
-            <AdminContactRequestsScreen onToast={notify} />
+          {['clients', 'admins', 'companies'].includes(page) && (
+            <AdminClientsScreen onToast={notify} />
           )}
-          {page === 'errors' && canPage('errors') && (
-            <AdminErrorsScreen onToast={notify} />
+          {['inbox', 'contact', 'seats'].includes(page) && (
+            <AdminInboxScreen onToast={notify} />
           )}
-          {page === 'companies' && canPage('companies') && (
-            <AdminCompaniesScreen onToast={notify} onNav={goPage} />
+          {['logs', 'errors', 'audit'].includes(page) && (
+            <AdminLogsScreen onToast={notify} />
           )}
 
           </ChunkErrorBoundary>
