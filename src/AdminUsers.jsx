@@ -979,6 +979,14 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
   }
 
   async function handleDisable(user) {
+    if (Number(user?.id) === Number(me?.id)) {
+      onToast?.("You can't disable your own account", 'error')
+      return
+    }
+    if (['admin', 'super_admin', 'sub_client_admin'].includes(user?.role) && me?.role !== 'super_admin') {
+      onToast?.('Only Super Admin can disable admin accounts', 'error')
+      return
+    }
     if (
       !confirm(
         `Disable @${user.username}? They cannot log into the field app. Active sessions will be revoked.`,
@@ -997,6 +1005,10 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
   }
 
   async function handleEnable(user) {
+    if (['admin', 'super_admin', 'sub_client_admin'].includes(user?.role) && me?.role !== 'super_admin') {
+      onToast?.('Only Super Admin can enable admin accounts', 'error')
+      return
+    }
     try {
       await enableUser(user.id)
       onToast?.(`Enabled @${user.username} · app login OK`, 'ok')
@@ -1023,6 +1035,14 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
   }
 
   async function handleDelete(user) {
+    if (Number(user?.id) === Number(me?.id)) {
+      onToast?.("You can't delete your own account", 'error')
+      return
+    }
+    if (['admin', 'super_admin', 'sub_client_admin'].includes(user?.role) && me?.role !== 'super_admin') {
+      onToast?.('Only Super Admin can delete admin accounts', 'error')
+      return
+    }
     if (
       !confirm(
         `DELETE @${user.username} permanently? Prefer Disable. This cannot be undone.`,
@@ -2052,7 +2072,15 @@ export default function AdminUsersScreen({ onToast, user: portalUser, focusUserI
                         <button type="button" className="btn small" onClick={() => openEdit(u)}>
                           Edit
                         </button>
-                        {u.active !== false ? (
+                        {Number(u.id) === Number(me?.id) ? (
+                          <span className="meta" style={{ fontSize: 11 }} title="You can't disable your own account">
+                            You
+                          </span>
+                        ) : me?.role !== 'super_admin' ? (
+                          <span className="meta" style={{ fontSize: 11 }} title="Only Super Admin can disable or enable admin accounts">
+                            Super Admin only
+                          </span>
+                        ) : u.active !== false ? (
                           <button
                             type="button"
                             className="btn small danger"
