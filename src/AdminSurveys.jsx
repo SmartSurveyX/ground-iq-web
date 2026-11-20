@@ -1285,24 +1285,13 @@ export default function AdminSurveysScreen({ onToast, user }) {
       }}
     >
       <div className="survey-card-head" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button
-          type="button"
-          className="btn small primary"
-          onClick={() => openDetail(s.id)}
-          disabled={busy}
-          style={{ fontWeight: 'bold', padding: '8px 16px' }}
-        >
-          Open
-        </button>
-        {(isSuper || user?.role === 'admin' || !!user?.can_web_survey) && (
-          <CopyWebFillLink compact formKey={s.form_key} title={s.title} onToast={onToast} />
-        )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <strong style={{ fontSize: 16, color: '#0f172a' }}>{s.title}</strong>
             {isFrozenSurvey(s) && (
               <span
                 className="pill"
+                title={s.ended ? 'Survey ended — questions are locked.' : 'Questions are locked: this survey already has responses, a web link or a field team.'}
                 style={{
                   background: s.ended ? '#f1f5f9' : '#dcfce7',
                   color: s.ended ? '#334155' : '#15803d',
@@ -1316,6 +1305,7 @@ export default function AdminSurveysScreen({ onToast, user }) {
             {sharedProject ? (
               <span
                 className="pill"
+                title={`Created by Super Admin for company ${s.company_name || user?.company_name || '—'}. You can open and run field work; you did not create this as your own survey.`}
                 style={{
                   background: 'rgba(124, 58, 237, 0.12)',
                   color: '#5b21b6',
@@ -1394,12 +1384,23 @@ export default function AdminSurveysScreen({ onToast, user }) {
               </span>
             </div>
           )}
-          {sharedProject && (
-            <div className="muted" style={{ fontSize: 12, marginTop: 3, color: '#5b21b6' }}>
-              Created by Super Admin for company {s.company_name || user?.company_name || '—'}. You can
-              open and run field work; you did not create this as your own survey.
-            </div>
-          )}
+        </div>
+        <div
+          className="survey-card-actions"
+          style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}
+        >
+        <button
+          type="button"
+          className="btn small primary"
+          onClick={() => openDetail(s.id)}
+          disabled={busy}
+          style={{ fontWeight: 'bold', padding: '8px 16px' }}
+        >
+          Open
+        </button>
+        {(isSuper || user?.role === 'admin' || !!user?.can_web_survey) && (
+          <CopyWebFillLink compact formKey={s.form_key} title={s.title} onToast={onToast} />
+        )}
         </div>
       </div>
     </div>
@@ -1455,16 +1456,16 @@ export default function AdminSurveysScreen({ onToast, user }) {
         </button>
       </header>
 
-      <div className="card" style={{ marginBottom: 12 }}>
-        <label className="field">
-          <span>Filter by {unit} name</span>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={`Type a ${unit} name…`}
-          />
-        </label>
-      </div>
+      {(surveys.length > 5 || search) && (
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={`Filter ${unit}s by name…`}
+          aria-label={`Filter by ${unit} name`}
+          style={{ width: '100%', marginBottom: 12 }}
+        />
+      )}
 
       {loading && <PortalSkeleton rows={4} label="Loading projects…" />}
 
