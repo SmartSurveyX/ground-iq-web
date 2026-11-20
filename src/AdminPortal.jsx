@@ -1,4 +1,4 @@
-import { Component, Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { Component, Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Icon from './Icons'
 import logoMark from './assets/logo-mark.png'
 import {
@@ -205,6 +205,16 @@ function Overview({ user, stats, onNav, superAdminOnly = false, canPage = () => 
   const [loadingBreakdown, setLoadingBreakdown] = useState(false)
   const [expandedAdmins, setExpandedAdmins] = useState({})
 
+  // "Get started" checklist: per-account dismiss, remembered in this browser
+  const checklistKey = `ssx_checklist_hidden_${String(user?.id ?? 'anon')}`
+  const [checklistHidden, setChecklistHidden] = useState(() => {
+    try { return localStorage.getItem(checklistKey) === '1' } catch { return false }
+  })
+  const hideChecklist = () => {
+    setChecklistHidden(true)
+    try { localStorage.setItem(checklistKey, '1') } catch { /* private mode */ }
+  }
+
   const toggleAdmin = (id) => {
     setExpandedAdmins((prev) => ({ ...prev, [id]: !prev[id] }))
   }
@@ -220,7 +230,7 @@ function Overview({ user, stats, onNav, superAdminOnly = false, canPage = () => 
   const confirmedTotal = Number(stats?.confirmed) || fieldConfirmed + webConfirmed
   const rejectedTotal = Number(stats?.rejected) || (Number(stats?.field_rejected) || 0) + webRejected
   const allSubmitted = Number(stats?.submissions) || fieldPending + fieldConfirmed + rejectedTotal + webSubmitted
-  const fieldUsed = fieldPending + fieldConfirmed
+  const fieldUsed = Math.max(fieldPending + fieldConfirmed, Number(stats?.field_submissions) || 0)
   const webReserved = surveyBreak.reduce(
     (n, s) => n + (Number(s.web_link?.max_uses) || 0),
     0,
@@ -288,6 +298,12 @@ function Overview({ user, stats, onNav, superAdminOnly = false, canPage = () => 
   const rejectedCount = rejectedTotal
   const liveAllCount = allSubmitted
 
+  // Only a NEW account needs onboarding: hide once records were reviewed or the account is 2+ weeks old
+  const createdMs = Date.parse(user?.created_at || user?.createdAt || '')
+  const accountAgeDays = Number.isFinite(createdMs) ? (Date.now() - createdMs) / 86400000 : 0
+  const isEstablished = confirmedCount + rejectedCount > 0 || accountAgeDays > 14
+  const showChecklist = !isSuper && !checklistHidden && !isEstablished
+
   const displayedItems = recentItems.filter((it) => {
     const isWeb = it.source === 'web-survey' || it.source === 'web'
     if (activityFilter === 'web') return isWeb
@@ -313,14 +329,21 @@ function Overview({ user, stats, onNav, superAdminOnly = false, canPage = () => 
         </div>
       </header>
 
-      {!isSuper && (
-        <SetupChecklist
-          surveys={surveyBreak}
-          surveyorCount={surveyorCount}
-          confirmed={confirmedTotal}
-          rejected={rejectedTotal}
-          onNav={onNav}
-        />
+      {showChecklist && (
+        <>
+          <SetupChecklist
+            surveys={surveyBreak}
+            surveyorCount={surveyorCount}
+            confirmed={confirmedTotal}
+            rejected={rejectedTotal}
+            onNav={onNav}
+          />
+          <div style={{ textAlign: 'right', margin: '-6px 0 12px' }}>
+            <button type="button" className="btn small" onClick={hideChecklist}>
+              Hide checklist
+            </button>
+          </div>
+        </>
       )}
 
       {/* KPI tiles — Mock 3 style with Total Allocations and Rejected */}
@@ -1221,6 +1244,32 @@ export default function AdminPortal({ superAdminOnly = false }) {
 
   /** Lightweight overview KPIs only — not full submissions */
   const [quotaSurveys, setQuotaSurveys] = useState([])
+
+  // getStats() can come back zeroed while the per-survey counts (listSurveys) are right.
+  // Take the larger of the two so KPIs, quota and the setup checklist agree with the
+  // Survey Breakdown table. Raw `stats` stays untouched for refresh logic.
+  const effectiveStats = useMemo(() => {
+    if (!stats) return stats
+    const sv = quotaSurveys.reduce(
+      (a, sv0) => ({
+        pending: a.pending + (Number(sv0.pending) || 0),
+        confirmed: a.confirmed + (Number(sv0.confirmed) || 0),
+        rejected: a.rejected + (Number(sv0.rejected) || 0),
+        field: a.field + (Number(sv0.field_submissions) || 0),
+      }),
+      { pending: 0, confirmed: 0, rejected: 0, field: 0 },
+    )
+    const top = (k, v) => Math.max(Number(stats[k]) || 0, v)
+    return {
+      ...stats,
+      pending: top('pending', sv.pending),
+      confirmed: top('confirmed', sv.confirmed),
+      rejected: top('rejected', sv.rejected),
+      submissions: top('submissions', sv.pending + sv.confirmed + sv.rejected),
+      field_submissions: top('field_submissions', sv.field),
+      field_used: top('field_used', sv.field),
+    }
+  }, [stats, quotaSurveys])
   const loadStats = useCallback(async () => {
     if (!getToken()) return
     try {
@@ -1431,7 +1480,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
 
       <div className="admin-bell-dock" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         {user?.role === 'admin' ? (
-          <QuotaIndicator user={user} stats={stats} surveys={quotaSurveys} />
+          <QuotaIndicator user={user} stats={effectiveStats} surveys={quotaSurveys} />
         ) : null}
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 9999, background: '#f0fdf4', border: '1px solid #dcfce7', color: '#16a34a', fontSize: 12, fontWeight: 700 }}>
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a' }}></span>
@@ -1624,7 +1673,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
           {(page === 'overview' || !canPage(page) || !PAGE_LABELS[page]) && (
             <Overview
               user={user}
-              stats={stats}
+              stats={effectiveStats}
               onNav={goPage}
               superAdminOnly={isSuper}
               canPage={canPage}
@@ -1667,7 +1716,7 @@ export default function AdminPortal({ superAdminOnly = false }) {
             <AdminConversationsScreen onToast={notify} />
           )}
           {page === 'bank' && canPage('bank') && (
-            <AdminQuestionBankScreen onToast={notify} user={user} />
+            <AdminQuestionBankScreen onToast={notify} user={user} onNav={goPage} />
           )}
           {page === 'web' && canPage('web') && (
             <AdminWebSurveyScreen onToast={notify} user={user} />
@@ -1732,9 +1781,9 @@ export default function AdminPortal({ superAdminOnly = false }) {
         >
           <span className="portal-tab-icon" style={{ position: 'relative' }}>
             <Icon name="clipboardCheck" size={22} />
-            {(Number(stats?.pending) || 0) > 0 ? (
+            {(Number(effectiveStats?.pending) || 0) > 0 ? (
               <span className="portal-tab-badge">
-                {Number(stats.pending) > 99 ? '99+' : stats.pending}
+                {Number(effectiveStats.pending) > 99 ? '99+' : effectiveStats.pending}
               </span>
             ) : null}
           </span>

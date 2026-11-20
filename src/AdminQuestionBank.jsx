@@ -43,7 +43,52 @@ const TYPE_OPTIONS = [
   ['age', '🔢 Age / Numeric Field'],
 ]
 
-export default function AdminQuestionBankScreen({ onToast, user }) {
+const STARTERS = [
+  {
+    name: 'Quick yes / no check',
+    questions: [
+      { label: 'Respondent name', type: 'text', required: true },
+      { label: 'Are you satisfied with the current service?', type: 'yesno', required: true },
+      { label: 'Any comments?', type: 'text' },
+    ],
+  },
+  {
+    name: 'Feedback survey',
+    questions: [
+      { label: 'How would you rate your experience?', type: 'sentiment', required: true },
+      { label: 'What did you like most?', type: 'text' },
+      { label: 'What should we improve?', type: 'text' },
+    ],
+  },
+  {
+    name: 'Household basics',
+    questions: [
+      { label: 'Respondent name', type: 'text', required: true },
+      { label: 'Age', type: 'age', required: true },
+      { id: 'phone', label: 'Phone number', type: 'text' },
+      { label: 'Village / area', type: 'text' },
+    ],
+  },
+]
+
+// "1. Do you own land? | Yes, No"  →  { label, type, options }
+function parseQuestionLines(text) {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [rawLabel, rawOpts = ''] = line.split('|')
+      const label = rawLabel.replace(/^\s*\d+[.)]\s*/, '').trim()
+      const options = rawOpts.split(',').map((o) => o.trim()).filter(Boolean)
+      const isYesNo = options.length === 2 && options.map((o) => o.toLowerCase()).join() === 'yes,no'
+      const type = options.length ? (isYesNo ? 'yesno' : 'choice') : 'text'
+      return { label, type, options }
+    })
+    .filter((q) => q.label)
+}
+
+export default function AdminQuestionBankScreen({ onToast, user, onNav }) {
   const me = getStoredUser()
   const isSuper = me?.role === 'super_admin'
   // FR-QB-02: CRUD requires the Super-Admin-granted power; viewing/using ★ global templates is open
@@ -57,6 +102,8 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState(null)
   const [useCounts, setUseCounts] = useState({})
+  const [showBulk, setShowBulk] = useState(false)
+  const [bulkText, setBulkText] = useState('')
   // Super-Admin-set per-survey question cap for this Client Admin (0 = unlimited)
   const maxQsPerSurvey = Number(user?.max_questions_per_survey || me?.max_questions_per_survey) || 0
   const capFor = (qs) => (maxQsPerSurvey > 0 ? Math.min(maxQsPerSurvey, qs.length) : qs.length)
@@ -82,9 +129,59 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
     setName('')
     setIsGlobal(false)
     setQuestions([])
+    setBulkText('')
+    setShowBulk(true) // empty template: offer "paste a list" straight away
+  }
+
+  function startFromStarter(st) {
+    setEditing({ id: null })
+    setName(st.name)
+    setIsGlobal(false)
+    setBulkText('')
+    setShowBulk(false)
+    setQuestions(
+      st.questions.map((q, i) => ({
+        ...EMPTY_Q,
+        ...q,
+        options: defaultOptionsForType(q.type),
+        _uid: `s-${Date.now()}-${i}`,
+      })),
+    )
+  }
+
+  function startDuplicate(t) {
+    setEditing({ id: null })
+    setName(`${t.name} (copy)`)
+    setIsGlobal(false)
+    setBulkText('')
+    setShowBulk(false)
+    setQuestions((Array.isArray(t.questions) ? t.questions : []).map((q, i) => ({ ...q, _uid: `d-${Date.now()}-${i}` })))
+  }
+
+  function addBulk() {
+    const parsed = parseQuestionLines(bulkText)
+    if (!parsed.length) {
+      onToast?.('Type one question per line first', 'error')
+      return
+    }
+    setQuestions((list) => [
+      ...list,
+      ...parsed.map((q, i) => ({
+        ...EMPTY_Q,
+        label: q.label,
+        type: q.type,
+        options: q.options.length ? q.options : defaultOptionsForType(q.type),
+        speak: q.label,
+        _uid: `b-${Date.now()}-${i}`,
+      })),
+    ])
+    setBulkText('')
+    setShowBulk(false)
+    onToast?.(`${parsed.length} question${parsed.length === 1 ? '' : 's'} added`, 'ok')
   }
 
   function startEdit(t) {
+    setShowBulk(false)
     setEditing(t)
     setName(t.name || '')
     setIsGlobal(!!t.is_global)
@@ -182,16 +279,19 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
   }
 
   async function useTemplate(t) {
+    const qs = Array.isArray(t.questions) ? t.questions : []
+    const cap = maxQsPerSurvey > 0 ? Math.min(maxQsPerSurvey, qs.length) : qs.length
+    const rawCount = useCounts[t.id]
+    const questionCount = rawCount ? Math.min(rawCount, cap) : undefined
+    const n = questionCount || cap
+    if (!window.confirm(`Create a new survey from “${t.name}” with ${n} question${n === 1 ? '' : 's'}?`)) return
     setBusyId(t.id)
     try {
-      const qs = Array.isArray(t.questions) ? t.questions : []
-      const cap = maxQsPerSurvey > 0 ? Math.min(maxQsPerSurvey, qs.length) : qs.length
-      const rawCount = useCounts[t.id]
-      const questionCount = rawCount ? Math.min(rawCount, cap) : undefined
       const d = await copyQuestionBank(t.id, {
         question_count: questionCount && questionCount < cap ? questionCount : undefined,
       })
-      onToast?.(`Survey "${d.survey?.title || 'created'}" created from template — edit it under Surveys`, 'ok')
+      onToast?.(`Survey "${d.survey?.title || 'created'}" created from template`, 'ok')
+      onNav?.('surveys')
     } catch (e) {
       onToast?.(e.message, 'error')
     } finally {
@@ -327,8 +427,32 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
           )
         })}
 
+        {showBulk && (
+          <div className="card" style={{ marginBottom: 12 }}>
+            <p className="muted" style={{ margin: '0 0 8px', fontSize: 12 }}>
+              Paste one question per line. For answer choices add a <strong>|</strong> and the options, for example:{' '}
+              <em>Do you own land? | Yes, No</em>
+            </p>
+            <textarea
+              rows={6}
+              value={bulkText}
+              onChange={(e) => setBulkText(e.target.value)}
+              placeholder={'Respondent name\nDo you own land? | Yes, No\nMain crop? | Rice, Cotton, Maize'}
+              style={{ width: '100%', fontSize: 14 }}
+            />
+            <div style={{ marginTop: 8 }}>
+              <button type="button" className="btn small primary" onClick={addBulk}>
+                Add these questions
+              </button>
+            </div>
+          </div>
+        )}
+
         <button type="button" className="btn small" onClick={addQ} style={{ marginRight: 8 }}>
           + Add Question
+        </button>
+        <button type="button" className="btn small" onClick={() => setShowBulk((v) => !v)} style={{ marginRight: 8 }}>
+          Paste a list
         </button>
         <button type="button" className="btn small primary" onClick={() => void save()} disabled={saving}>
           {saving ? 'Saving…' : editing?.id ? 'Save changes' : 'Create template'}
@@ -352,9 +476,9 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
       <header className="screen-head">
         <h2>{isSuper ? 'Super Admin · Global Question Bank' : 'Question Bank'}</h2>
         <p>
-          FR-QB-02: reusable question templates. {isSuper ? '★ templates are global (all tenants); ' : 'Your private templates plus ★ global ones. '}
-          “Use template” creates a live survey (needs CRUD questionnaire or Survey questions power).
-          Use the <strong>− +</strong> picker to select how many questions to include (default all).
+          Save a set of questions once, then start a new survey from it in one click.
+          {isSuper ? ' ★ templates are global (all tenants).' : ' You see your own templates plus ★ global ones from the Super Admin.'}
+          {' '}Starting a survey needs the Create surveys power.
         </p>
       </header>
 
@@ -385,8 +509,24 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
       ) : templates.length === 0 ? (
         <div className="card">
           <p className="muted" style={{ margin: 0 }}>
-            No templates yet. Create one to reuse across surveys — mark it ★ global to share with every client.
+            {canCrud
+              ? isSuper
+                ? 'No templates yet. Start from a ready-made set or build your own — mark it ★ global to share with every client.'
+                : 'No templates yet. Start from a ready-made set below, or build your own. Your templates are private to your portal.'
+              : 'No templates yet. Ask your Super Admin to publish ★ global templates, or to grant you Question Bank CRUD.'}
           </p>
+          {canCrud && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+              {STARTERS.map((st) => (
+                <button key={st.name} type="button" className="btn small" onClick={() => startFromStarter(st)}>
+                  ＋ {st.name} ({st.questions.length} questions)
+                </button>
+              ))}
+              <button type="button" className="btn small primary" onClick={startCreate}>
+                ＋ Blank template
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         templates.map((t) => {
@@ -475,6 +615,11 @@ export default function AdminQuestionBankScreen({ onToast, user }) {
                     {busyId === t.id ? '…' : 'Use template → survey'}
                   </button>
                 </div>
+                {canCrud && (
+                  <button type="button" className="btn small" onClick={() => startDuplicate(t)}>
+                    Duplicate
+                  </button>
+                )}
                 {canCrud && !(t.is_global && !isSuper) && (
                   <>
                     <button type="button" className="btn small" onClick={() => startEdit(t)}>
