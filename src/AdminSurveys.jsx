@@ -1302,20 +1302,7 @@ export default function AdminSurveysScreen({ onToast, user }) {
                 {s.ended ? 'ENDED · frozen' : 'ONGOING · frozen'}
               </span>
             )}
-            {sharedProject ? (
-              <span
-                className="pill"
-                title={`Created by Super Admin for company ${s.company_name || user?.company_name || '—'}. You can open and run field work; you did not create this as your own survey.`}
-                style={{
-                  background: 'rgba(124, 58, 237, 0.12)',
-                  color: '#5b21b6',
-                  fontWeight: 700,
-                  fontSize: 11,
-                }}
-              >
-                Super Admin project · {s.company_name || user?.company_name || 'company'}
-              </span>
-            ) : !isSuper ? (
+            {sharedProject ? null : !isSuper ? (
               <span
                 className="pill"
                 style={{
